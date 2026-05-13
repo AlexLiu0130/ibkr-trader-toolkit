@@ -16,6 +16,7 @@
 - [Requirements](#-requirements)
 - [IBKR Market Data Subscriptions](#-ibkr-market-data-subscriptions)
 - [Quick Start](#-quick-start)
+- [Operations Guide (Second User, Auto-Restart)](#-operations-guide)
 - [Claude Code Integration](#-claude-code-integration)
 - [Command Reference](#-command-reference)
 - [Configuration](#-configuration)
@@ -206,6 +207,137 @@ Expected output (JSON):
 ```
 
 If you see this — you're done. Try `python scripts/portfolio_positions.py` next.
+
+---
+
+## 🛠️ Operations Guide
+
+Running this toolkit 24/7 reliably hits two operational problems IBKR doesn't talk about loudly. Solve them once, never think about them again.
+
+### Problem 1: Mobile app kills your Gateway session
+
+**IBKR allows only one active session per username.** If your script runs IB Gateway on the Mac and then you open IBKR Mobile to check your portfolio, **the mobile login kicks the Gateway out** — all your scripts fail until you log Gateway back in.
+
+**Solution: Create a second user (free)**
+
+Use one username for the API (Gateway) and another for the mobile/TWS. They share the same account and see the same positions, but each has its own login session.
+
+**Steps:**
+
+1. Log into [IBKR Client Portal](https://www.interactivebrokers.com/sso/Login) with your primary username
+2. Profile icon (top right) → **Settings**
+3. Under **Account Settings**, find **Users & Access Rights**
+4. Click **+** to add a user
+5. Select **"Yes"** for *"Is this a secondary user for the primary account holder?"*
+6. Complete the form (the second user can be view-only or have trading rights — your choice)
+7. Submit. IBKR usually approves within 1 business day
+8. Logout, log in with the new secondary username once to set the password
+9. **Use the secondary username in IB Gateway**; keep the primary for the mobile app
+
+This is **free** and the second user has full read access to the same account.
+
+**Source:** [Adding a Second User on IBKR](https://help.piranhaprofits.com/knowledge/how-to-create-a-second-user-why-do-i-need-it)
+
+---
+
+### Problem 2: Gateway dies overnight, scripts fail at 9am
+
+IB Gateway auto-logs-out daily (IBKR forces it for security) and sometimes crashes after weeks of uptime. If you rely on cron jobs or a morning routine, you want it always-on.
+
+**Solution: Auto-restart with launchd (macOS) or systemd (Linux)**
+
+#### macOS — launchd
+
+Create `~/Library/LaunchAgents/com.user.ibgateway.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.ibgateway</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/IB Gateway 10.30/ibgateway.app/Contents/MacOS/JavaApplicationStub</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/ibgateway.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ibgateway.err.log</string>
+</dict>
+</plist>
+```
+
+Load it:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.user.ibgateway.plist
+```
+
+It will auto-restart Gateway whenever it dies. To stop: `launchctl unload ~/Library/LaunchAgents/com.user.ibgateway.plist`.
+
+> **Note:** Gateway still requires daily 2FA via IBKR Mobile. Auto-restart handles crashes but not the once-a-day login prompt — set [auto-restart inside Gateway](#enable-auto-restart-inside-gateway) (see below) to skip 2FA for 7 days.
+
+#### Enable auto-restart inside Gateway
+
+In IB Gateway: **Configure → Lock and Exit → Auto Restart**. Pick a daily restart time (e.g. 03:00 ET). This keeps Gateway running for up to a week without re-entering 2FA. After 7 days you have to log in manually once.
+
+#### Linux — systemd
+
+Create `~/.config/systemd/user/ibgateway.service`:
+
+```ini
+[Unit]
+Description=IB Gateway
+After=network.target
+
+[Service]
+ExecStart=/opt/ibgateway/ibgateway
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now ibgateway
+```
+
+---
+
+### Problem 3: `Warning 2105: ushmds connection broken`
+
+If `market_quote.py` or `technical_indicators.py` hangs and you see this in Gateway logs, **IBKR's US historical-data farm is down**. It's a server-side outage; usually self-heals in 5–30 minutes.
+
+**What you'll see:**
+
+```
+reqHistoricalData: Timeout for Stock(...)
+RuntimeError: Historical data returned empty
+```
+
+**Diagnose by enabling logs:**
+
+```python
+from ib_async import util
+util.logToConsole()
+# look for: Warning 2105, reqId -1: 历史市场数据场连接中断:ushmds
+```
+
+**What still works during a `ushmds` outage:**
+- `options_chain.py`, `portfolio_positions.py`, `options_daily.py` — they use realtime market data (`hfarm`), not historical
+- `market_quote.py`, `technical_indicators.py` — these need `ushmds`, will time out
+
+**Workarounds:**
+- Wait it out (5–30 min, IBKR usually recovers automatically)
+- Restart IB Gateway to force-reconnect to a different farm endpoint
+- For automation, scripts should treat historical-data errors as soft failures — the toolkit already raises a clear `RuntimeError` you can catch upstream
 
 ---
 
