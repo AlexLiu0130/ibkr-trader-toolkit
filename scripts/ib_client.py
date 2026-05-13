@@ -35,7 +35,7 @@ from ib_async import IB
 
 HOST = os.getenv("IBKR_HOST", "127.0.0.1")
 PORT = int(os.getenv("IBKR_PORT", "4001"))
-DEFAULT_MARKET_DATA_TYPE = int(os.getenv("IBKR_MARKET_DATA_TYPE", "1"))
+DEFAULT_MARKET_DATA_TYPE = int(os.getenv("IBKR_MARKET_DATA_TYPE", "3"))
 CLIENT_ID_BASE = int(os.getenv("IBKR_CLIENT_ID_BASE", "11"))
 CONNECT_TIMEOUT = 10
 
