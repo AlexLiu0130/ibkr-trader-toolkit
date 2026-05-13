@@ -14,6 +14,7 @@
 
 - [Features](#-features)
 - [Requirements](#-requirements)
+- [IBKR Market Data Subscriptions](#-ibkr-market-data-subscriptions)
 - [Quick Start](#-quick-start)
 - [Claude Code Integration](#-claude-code-integration)
 - [Command Reference](#-command-reference)
@@ -62,10 +63,74 @@
 | **Python** | 3.10 or newer |
 | **IBKR account** | Live or paper. Paper account is fine for learning. |
 | **IB Gateway** | Free download from [IBKR](https://www.interactivebrokers.com/en/trading/ibgateway-stable.php). TWS also works (different port). |
-| **Real-time data subscription** | *Optional.* Without it, set `IBKR_MARKET_DATA_TYPE=3` (free delayed quotes). |
+| **Market data subscriptions** | See [next section](#-ibkr-market-data-subscriptions) — needed for realtime quotes & Greeks. Delayed data is free. |
 | **OS** | macOS / Linux / Windows. All scripts are pure Python. |
 
 > **Why IB Gateway, not TWS?** Gateway is headless, uses less memory, and is the standard choice for programmatic access. TWS works too — set `IBKR_PORT=7497` (paper) or `7496` (live).
+
+---
+
+## 💳 IBKR Market Data Subscriptions
+
+This toolkit's value depends heavily on **what data IBKR will send you**. Subscriptions are configured per account at Client Portal → Settings → User Settings → Market Data Subscriptions.
+
+### What each feature needs
+
+| Feature | Subscriptions needed | Works on delayed? |
+|---------|---------------------|-------------------|
+| Stock/ETF price (`market_quote.py`) | None — Snapshot bundle for realtime, otherwise delayed | ✅ Yes |
+| Portfolio positions & P&L (`portfolio_positions.py`, `pnl_analytics.py`) | None — account data is always available | ✅ Yes |
+| Option chain bid/ask (`options_chain.py`) | **OPRA Top of Book** | ⚠️ Partial — bid/ask only, no Greeks |
+| **Option Greeks** (IV, delta, gamma, vega, theta) | **OPRA + the underlying's stock exchange** | ❌ **No** — Greeks require realtime |
+| Earnings calendar (`earnings_calendar.py`) | None — uses Nasdaq public API | ✅ Yes |
+| Technical indicators (`technical_indicators.py`) | None — uses historical bars (free) | ✅ Yes |
+
+**Key insight from IBKR API docs:**
+> *"To receive live Greek values it is necessary to have market data subscriptions for both the option and the underlying contract."*
+
+Translation: if you only subscribe to OPRA but not (say) NYSE ARCA, you get SPY option **prices** but not SPY option **Greeks** — because IBKR can't compute delta/gamma without realtime underlying.
+
+### Recommended bundles for this toolkit
+
+| Bundle | Monthly cost | Waived if | What you get |
+|--------|--------------|-----------|--------------|
+| **Free (delayed)** | $0 | always | Stock prices, bid/ask, portfolio data, historical bars. **No Greeks**, no live IV environment. |
+| **OPRA only** | $1.50 | $20+ commissions/mo | Realtime option bid/ask. Greeks only for symbols whose underlying you also subscribe to. |
+| **US Securities Bundle + OPRA** ⭐ recommended | $11.50 | $30+ commissions/mo | Realtime stock + option data + Greeks for all US-listed symbols. The toolkit's full feature set. |
+
+**Bundle contents (US Securities Snapshot and Futures Value Bundle):**
+- Consolidated realtime NBBO for US stocks/ETFs
+- Top-of-book for major futures (CME, CBOT, COMEX, NYMEX)
+- OTC Markets quotes
+
+> **Commission waiver math:** If you trade 1 lot of options per week (~4 contracts × $0.65 commission ≈ $2.60/wk = ~$10/mo), you're partway there. Two roundtrip options trades per month usually clears the $30 threshold.
+
+### How to subscribe
+
+1. Log into [IBKR Client Portal](https://www.interactivebrokers.com/sso/Login)
+2. Settings (top right) → User Settings → Market Data Subscriptions
+3. Click "Configure"
+4. Search and add:
+   - **"US Securities Snapshot and Futures Value Bundle"** (NL)
+   - **"OPRA Top of Book"** (NL)
+5. Confirm and accept
+6. Subscriptions usually activate within 10 minutes; restart IB Gateway
+
+### How the toolkit handles missing subscriptions
+
+The default `IBKR_MARKET_DATA_TYPE=3` (delayed-smart) tells IBKR:
+> *"Give me realtime if I'm subscribed; fall back to delayed if I'm not."*
+
+This means **the toolkit works on day one with $0 subscriptions** — you just won't have Greeks until you upgrade. No Error 10089 crashes.
+
+If you ever want to force a specific mode:
+- `IBKR_MARKET_DATA_TYPE=1` — strict realtime (errors on unsubscribed)
+- `IBKR_MARKET_DATA_TYPE=3` — smart delayed (default; auto-upgrades)
+- `IBKR_MARKET_DATA_TYPE=4` — delayed-frozen (last cached value, useful after-hours)
+
+**Sources:**
+- [IBKR Market Data Pricing](https://www.interactivebrokers.com/en/pricing/market-data-pricing.php)
+- [TWS API: Option Greeks docs](https://interactivebrokers.github.io/tws-api/option_computations.html)
 
 ---
 
