@@ -5,100 +5,134 @@ description: Interactive Brokers options & stock trading assistant. Provides rea
 
 # IBKR Trader Toolkit
 
-A skill for everything Interactive Brokers: real-time data, options analysis, portfolio Greeks, wheel tracking, P&L stats. Scripts produce JSON; you (the model) do the reasoning.
+Real-time data, options analysis, and portfolio risk for Interactive Brokers — all via JSON-emitting CLI scripts.
 
-## When to use
+**Core rule:** Scripts produce data. You (the model) produce the analysis.
 
-Fire this skill whenever the user asks about:
+---
 
-- **Stock/ETF prices** ("what's SPY at?", "current price of AAPL") — use `market_quote.py`, **never** web search. Real-time quote is one second old; the web is minutes-to-hours stale.
-- **Options chains, Greeks, IV** ("show me AAPL puts for next month", "what's the IV on SPY 600C?")
-- **Strategy recommendations** ("what's a good bullish strategy here?", "should I sell a put on MU?")
-- **Position risk** ("am I too long delta?", "what happens to my Greeks if I add this trade?")
-- **P&L, win rate, history** ("how have my wheel trades done this quarter?")
-- **Wheel strategy** anything ("am I in stage 2 on PLTR?", "should I roll or accept assignment?")
-- **Earnings risk** ("does ARM have earnings before my call expires?")
-- **Alerts** ("warn me if SPY IV percentile crosses 80")
+## When to trigger this skill
 
-Trigger even when the user doesn't mention IBKR. If they ask about *their* positions or *their* P&L, this skill is the source of truth — their broker is IBKR.
+| User asks about... | Example phrasing |
+|---|---|
+| Stock / ETF prices | "What's SPY at?" "Current AAPL price" |
+| Option chains, Greeks, IV | "Show me AAPL puts for next month" |
+| Strategy ideas | "Should I sell a put on MU?" |
+| Position risk | "Am I too long delta?" |
+| P&L, win rate, history | "How are my wheel trades doing?" |
+| Earnings risk | "Does ARM report before my call expires?" |
+| Alerts / monitoring | "Warn me if SPY IV > 80%ile" |
 
-## Standard workflows
+Fire **even if the user doesn't mention IBKR** — if they're asking about *their* positions or P&L, this skill is the source of truth.
 
-### 1. "Should I sell a put on $SYM?"
+**Critical:** For stock prices, always use `market_quote.py`. **Never** web-search a stock price — the web is minutes-to-hours stale.
 
-```
-portfolio_positions.py                       → current exposure & cash
-earnings_calendar.py SYM --days 60           → earnings within DTE?
-options_analyzer.py SYM --outlook bullish \
-   --risk-profile conservative --iv-context  → IV environment + strikes
-options_chain.py SYM --dte-min 25 --dte-max 45  → live mids for the candidate strikes
-```
+---
 
-Then you compose the recommendation. Always show: strike, delta, premium, breakeven, annualized yield, and earnings/IV warnings.
+## Workflows
 
-### 2. "What's my portfolio looking like?"
+### "Should I sell a put on $SYM?"
 
-```
-portfolio_positions.py    → positions + per-position Greeks + portfolio Greeks
-options_daily.py          → expiry-week warnings, IV environment, per-position notes
-pnl_analytics.py --days 7 → recent realized P&L
-```
+Run these in order, then synthesize:
 
-### 3. "I'm thinking of adding trade X — is it safe?"
+| Step | Command | Why |
+|------|---------|-----|
+| 1 | `portfolio_positions.py` | Know existing exposure first |
+| 2 | `earnings_calendar.py SYM --days 60` | Avoid earnings inside DTE |
+| 3 | `options_analyzer.py SYM --outlook bullish --risk-profile conservative --iv-context` | Get IV environment + candidate strikes |
+| 4 | `options_chain.py SYM --dte-min 25 --dte-max 45` | Live mid prices for chosen strikes |
 
-```
+**Your recommendation must include:** strike • delta • premium • breakeven • annualized yield • earnings/IV warnings.
+
+---
+
+### "What's my portfolio looking like?"
+
+| Step | Command |
+|------|---------|
+| 1 | `portfolio_positions.py` → positions + Greeks |
+| 2 | `options_daily.py` → expiry warnings + IV summary |
+| 3 | `pnl_analytics.py --days 7` → recent realized P&L |
+
+---
+
+### "I'm thinking of adding trade X — is it safe?"
+
+```bash
 risk_simulator.py --add "SYM STRIKE EXPIRY R ACTION QTY"
 ```
 
-Output shows portfolio Greeks **before** and **after**. Flag if vega doubles, if net delta flips sign, or if a single name now exceeds 30% of capital.
+Flag any of:
+- **Vega magnitude doubles** → much more IV-exposed
+- **Net delta flips sign** → directional bet now opposite
+- **One symbol > 30% of capital** → concentration risk
 
-### 4. "How's my wheel doing?"
+---
 
-```
+### "How's my wheel doing?"
+
+```bash
 wheel_tracker.py --summary
 ```
 
-Shows each wheel by symbol: stage (short put / assigned / covered call / called away), cumulative premium, days in cycle, annualized return.
+Returns per-symbol: stage (`short_put` / `assigned` / `covered_call` / `called_away`), cumulative premium, days in cycle, annualized return.
 
-## Script quick reference
+---
 
-| Script | Use when |
-|---|---|
-| `market_quote.py SYM` | Any stock/ETF price question. |
-| `options_chain.py SYM [--dte-min N --dte-max M]` | Picking strikes / surveying IV by expiry. |
-| `portfolio_positions.py` | "What do I own?" / portfolio Greeks. |
-| `options_analyzer.py SYM --outlook X --risk-profile Y --iv-context` | Strategy selection given an outlook. |
-| `options_daily.py` | Morning/EOD report — start any options-heavy session here. |
-| `pnl_analytics.py [--days N --by symbol\|strategy]` | Realized P&L, win rate, best/worst. |
-| `risk_simulator.py --add "..."` | Pre-trade Greeks delta. |
-| `earnings_calendar.py SYM...` | Earnings DTE for one or more symbols. |
-| `technical_indicators.py SYM` | RSI/MA/BB/ATR context for an outlook. |
-| `wheel_tracker.py --summary` | Wheel cycle status & yield. |
-| `alerts_monitor.py` | Run user's alert rules (cron-friendly). |
+## Script reference
 
-## Key constraints
+| Script | When to use |
+|--------|-------------|
+| `market_quote.py SYM [SYM2 ...]` | Any stock/ETF price question |
+| `portfolio_positions.py` | What do I own? Portfolio Greeks |
+| `options_chain.py SYM` | Strikes survey + IV by expiry |
+| `options_analyzer.py SYM --outlook X --risk-profile Y --iv-context` | Strategy ideas given outlook |
+| `options_daily.py` | Morning/EOD options report (start here) |
+| `pnl_analytics.py [--days N]` | Realized P&L, win rate, best/worst |
+| `risk_simulator.py --add "..."` | Pre-trade Greeks impact |
+| `earnings_calendar.py SYM ...` | Earnings within N days |
+| `technical_indicators.py SYM` | RSI / MA / BB / ATR |
+| `wheel_tracker.py --summary` | Wheel cycle status |
+| `alerts_monitor.py` | Threshold rules (cron-friendly) |
 
-- **Scripts output JSON. You do the analysis.** Never assume the script's recommendation list is final — re-rank it against the user's actual situation.
-- **Real-time data first.** Default `IBKR_MARKET_DATA_TYPE=1`. If quotes look frozen, check whether the market is open and whether the user has subscriptions.
-- **Read-only.** None of these scripts can place orders. Recommend, never execute.
-- **One connection at a time per clientId.** If a script fails with `clientId already in use`, suggest waiting a few seconds or bumping `IBKR_CLIENT_ID_BASE`.
-- **Cache offline data when iterating.** Use `options_chain.py --output /tmp/chain.json` then `options_analyzer.py --chain-file /tmp/chain.json` to avoid repeated IBKR hits.
+All scripts:
+- Output JSON to stdout (or to `--output FILE`)
+- Read IBKR config from env vars (`IBKR_HOST`, `IBKR_PORT`, `IBKR_CLIENT_ID_BASE`, `IBKR_MARKET_DATA_TYPE`)
+- Are read-only — they can never place orders
 
-## For options trade decisions
+---
 
-Before recommending any options trade, you should have checked **all three**:
+## Pre-trade checklist (every options recommendation)
 
-1. **IV environment** — `options_analyzer.py --iv-context` returns `current_iv`, `hist_vol_20d`, and a bias (`high`/`low`/`neutral`). Selling premium when IV is low is a bad trade; buying premium when IV is high is a bad trade.
-2. **Earnings within DTE** — `earnings_calendar.py SYM --days N`. An IV crush across earnings can wipe out a premium-selling thesis or hand a long premium trade a windfall — either way, it changes the strategy.
-3. **Existing position Greeks** — `portfolio_positions.py`. If the user is already net long 5,000 delta, adding more delta is the wrong move regardless of outlook.
+Before suggesting any options trade, verify all three:
 
-State each check explicitly in your response ("IV environment: low (ratio 0.7); earnings: none in the next 45 days; current net delta: +1,200"). The user can audit your reasoning.
+1. **IV environment** — from `options_analyzer.py --iv-context`. Don't sell premium in low-IV; don't buy premium in high-IV.
+2. **Earnings inside DTE** — from `earnings_calendar.py`. IV crush after earnings flips the math.
+3. **Existing position Greeks** — from `portfolio_positions.py`. If already +5000 delta, adding more is wrong direction-of-thesis or not.
 
-## Detailed references
+State each check explicitly:
+> "IV environment: low (ratio 0.7); earnings: none in next 45 days; current net delta: +1,200."
 
-For deeper guidance, read these on demand:
+This lets the user audit the reasoning.
 
-- [`references/strategies.md`](references/strategies.md) — full McMillan/Overby strategy library, construction, IV preference, P&L profile, selection matrix.
-- [`references/greeks_primer.md`](references/greeks_primer.md) — practical interpretation of Delta/Gamma/Vega/Theta/Rho at the portfolio level.
-- [`references/wheel_strategy.md`](references/wheel_strategy.md) — strike/DTE selection, roll-vs-assign decision tree.
-- [`references/troubleshooting.md`](references/troubleshooting.md) — connection errors, market-data subscription issues, common Gateway misconfigurations.
+---
+
+## Operating constraints
+
+| Constraint | What it means |
+|------------|---------------|
+| **JSON in, judgement out** | The script's `recommendations` list is candidate data, not a final answer. Re-rank against the user's situation. |
+| **Real-time by default** | `IBKR_MARKET_DATA_TYPE=1`. If quotes look frozen, check market hours + subscriptions. |
+| **One clientId per script** | If you see `clientId already in use`, wait a few seconds or bump `IBKR_CLIENT_ID_BASE`. |
+| **Cache chains across calls** | `options_chain.py --output /tmp/chain.json` then `options_analyzer.py --chain-file /tmp/chain.json` saves IBKR roundtrips. |
+
+---
+
+## Deeper references
+
+Read on demand when the user's question warrants it:
+
+- [`references/strategies.md`](references/strategies.md) — full McMillan/Overby strategy library + selection matrix
+- [`references/greeks_primer.md`](references/greeks_primer.md) — practical Delta/Gamma/Vega/Theta interpretation
+- [`references/wheel_strategy.md`](references/wheel_strategy.md) — strike/DTE selection, roll-vs-assign decision tree
+- [`references/troubleshooting.md`](references/troubleshooting.md) — connection errors, subscription issues
