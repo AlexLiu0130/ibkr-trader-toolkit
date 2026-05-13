@@ -1,12 +1,12 @@
 # ibkr-trader-toolkit
 
-> A complete options & stock trading assistant for Interactive Brokers — real-time Greeks, McMillan/Overby strategy library, P&L analytics, Wheel tracking, earnings warnings, risk simulation, and a Streamlit dashboard. Designed to plug straight into Claude Code as a skill.
+> A complete options & stock trading assistant for Interactive Brokers — real-time Greeks, McMillan/Overby strategy library, P&L analytics, Wheel tracking, earnings warnings, and risk simulation. Designed to plug straight into Claude Code as a skill.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![IBKR](https://img.shields.io/badge/broker-Interactive%20Brokers-red.svg)](https://www.interactivebrokers.com/)
 
-<!-- screenshot: hero-dashboard -->
+<!-- screenshot: hero -->
 
 ---
 
@@ -15,7 +15,6 @@
 - [Features](#-features)
 - [Requirements](#-requirements)
 - [Quick Start](#-quick-start)
-- [Dashboard](#-dashboard)
 - [Claude Code Integration](#-claude-code-integration)
 - [Command Reference](#-command-reference)
 - [Configuration](#-configuration)
@@ -29,7 +28,7 @@
 
 ## ✨ Features
 
-13 focused Python scripts plus a unified Streamlit dashboard. Every script outputs JSON so Claude (or any other agent) can reason about the data; the toolkit itself never gives buy/sell signals.
+13 focused Python scripts. Every script outputs JSON so Claude (or any other agent) can reason about the data; the toolkit itself never gives buy/sell signals.
 
 **Data & quotes**
 - `market_quote.py` — Real-time bid/ask/last/IV/volume for stocks, ETFs, options.
@@ -53,9 +52,6 @@
 
 **Connection layer**
 - `ib_client.py` — Shared IB Gateway connection with readonly safety, per-script clientId offsets, and historical-data pacing.
-
-**Dashboard**
-- 7-tab Streamlit UI (`dashboard/app.py`) wrapping every script — portfolio overview, option chain, strategy picker, daily report, P&L, earnings calendar, risk preview.
 
 ---
 
@@ -145,34 +141,6 @@ Expected output (JSON):
 ```
 
 If you see this — you're done. Try `python scripts/portfolio_positions.py` next.
-
----
-
-## 🎨 Dashboard
-
-```bash
-streamlit run dashboard/app.py
-```
-
-Opens automatically at <http://localhost:8501>. The dashboard has 7 tabs, each backed by one of the CLI scripts:
-
-| Tab | Backed by | Notes |
-|---|---|---|
-| 📊 Portfolio | `portfolio_positions.py` | Table + Greeks pie chart |
-| 📈 Option Chain | `options_chain.py` | Chain table + IV smile (Plotly) |
-| 🎯 Strategy Picker | `options_analyzer.py` | Form → recommendation cards + P&L diagram |
-| 📰 Daily Report | `options_daily.py` | Warnings / IV / per-position notes |
-| 💰 P&L | `pnl_analytics.py` | Win-rate gauge + histogram |
-| 📅 Earnings | `earnings_calendar.py` | Timeline with red/yellow/green urgency |
-| ⚡ Risk Sim | `risk_simulator.py` | Pre-trade Greeks delta |
-
-The header shows a live IB Gateway status light (green/red) and your real-time vs delayed mode.
-
-**Port conflict?** `streamlit run dashboard/app.py --server.port 8600`.
-
-**Language switch:** top-right selector toggles English / 中文 (UI labels only; raw data is always English).
-
-<!-- screenshot: dashboard-home -->
 
 ---
 
