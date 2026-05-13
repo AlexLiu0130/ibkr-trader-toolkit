@@ -522,7 +522,7 @@ def build_strategy(strategy_key: str, chain_data: dict,
             prob_profit = round(d * 100, 1) if legs[0]["right"] == "Put" else round((1 - d) * 100, 1)
 
     rr_ratio = None
-    if max_profit and max_loss and max_loss != 0:
+    if isinstance(max_profit, (int, float)) and isinstance(max_loss, (int, float)) and max_loss != 0:
         rr_ratio = round(abs(max_profit / max_loss), 2)
 
     return {

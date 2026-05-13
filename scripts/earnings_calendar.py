@@ -1,9 +1,9 @@
 """
 财报日历查询 — 拉取指定标的的下一次财报日期，可选与持仓合并标记 at-risk 期权。
 
-数据源：
-  - yahoo_earnings_calendar (主)
-  - Finnhub /calendar/earnings (备，若 FINNHUB_API_KEY 已设置)
+数据源（按优先级）：
+  - Nasdaq /api/calendar/earnings（公开，无需 key，按日期拉）
+  - Finnhub /calendar/earnings（备，若 FINNHUB_API_KEY 已设置）
 
 用法：
   python earnings_calendar.py AAPL MSFT NVDA
@@ -15,6 +15,8 @@ import argparse
 import json
 import os
 import sys
+import urllib.parse
+import urllib.request
 from datetime import datetime, date, timedelta
 
 
@@ -44,50 +46,34 @@ def _parse_date(val) -> date | None:
     return None
 
 
-def fetch_yahoo(symbol: str, days: int) -> dict | None:
-    try:
-        from yahoo_earnings_calendar import YahooEarningsCalendar
-    except ImportError:
-        log("  ⚠️  yahoo_earnings_calendar 未安装")
-        return None
-
-    yec = YahooEarningsCalendar()
-    try:
-        entries = yec.get_earnings_of(symbol) or []
-    except Exception as e:
-        log(f"  Yahoo {symbol}: {e}")
-        return None
-
+def fetch_nasdaq_range(days: int) -> dict[str, date]:
+    """拉取未来 days 天所有 earnings，返回 {symbol: earnings_date} 字典。"""
     today = date.today()
-    cutoff = today + timedelta(days=days)
-    future = []
-    for entry in entries:
-        edate = _parse_date(entry.get("startdatetime") or entry.get("date"))
-        if edate and today <= edate <= cutoff:
-            future.append((edate, entry))
-    if not future:
-        return None
-    future.sort(key=lambda x: x[0])
-    edate, entry = future[0]
-    return {
-        "symbol": symbol,
-        "next_earnings_date": edate.isoformat(),
-        "days_until": (edate - today).days,
-        "fiscal_period": entry.get("epsestimate"),
-        "source": "yahoo",
-    }
+    result: dict[str, date] = {}
+    for offset in range(days + 1):
+        d = today + timedelta(days=offset)
+        url = f"https://api.nasdaq.com/api/calendar/earnings?date={d.isoformat()}"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json",
+        })
+        try:
+            data = json.loads(urllib.request.urlopen(req, timeout=10).read())
+        except Exception as e:
+            log(f"  Nasdaq {d}: {e}")
+            continue
+        rows = (data.get("data") or {}).get("rows") or []
+        for row in rows:
+            sym = (row.get("symbol") or "").strip().upper()
+            if sym and sym not in result:
+                result[sym] = d
+    return result
 
 
-def fetch_finnhub(symbol: str, days: int) -> dict | None:
+def fetch_finnhub_one(symbol: str, days: int) -> dict | None:
     api_key = os.getenv("FINNHUB_API_KEY")
     if not api_key:
         return None
-    try:
-        import urllib.parse
-        import urllib.request
-    except ImportError:
-        return None
-
     today = date.today()
     cutoff = today + timedelta(days=days)
     params = urllib.parse.urlencode({
@@ -119,21 +105,6 @@ def fetch_finnhub(symbol: str, days: int) -> dict | None:
         "fiscal_period": f"{item.get('year')}Q{item.get('quarter')}",
         "source": "finnhub",
     }
-
-
-def fetch_one(symbol: str, days: int) -> dict:
-    info = fetch_yahoo(symbol, days)
-    if info is None:
-        info = fetch_finnhub(symbol, days)
-    if info is None:
-        return {
-            "symbol": symbol,
-            "next_earnings_date": None,
-            "days_until": None,
-            "fiscal_period": None,
-            "source": None,
-        }
-    return info
 
 
 def at_risk_positions(portfolio: dict, earnings: list[dict]) -> list[dict]:
@@ -200,7 +171,37 @@ def main() -> int:
         return 1
 
     log(f"🔄 查询 {len(symbols)} 个标的的财报 ({args.days} 天窗口) ...")
-    earnings = [fetch_one(s, args.days) for s in sorted(symbols)]
+    today = date.today()
+
+    log("  拉取 Nasdaq 财报日历 ...")
+    nasdaq_map = fetch_nasdaq_range(args.days)
+    log(f"  Nasdaq 返回 {len(nasdaq_map)} 个未来财报")
+
+    earnings = []
+    for sym in sorted(symbols):
+        sym_u = sym.upper()
+        edate = nasdaq_map.get(sym_u)
+        if edate:
+            earnings.append({
+                "symbol": sym,
+                "next_earnings_date": edate.isoformat(),
+                "days_until": (edate - today).days,
+                "fiscal_period": None,
+                "source": "nasdaq",
+            })
+            continue
+        # Fallback: Finnhub
+        info = fetch_finnhub_one(sym, args.days)
+        if info:
+            earnings.append(info)
+        else:
+            earnings.append({
+                "symbol": sym,
+                "next_earnings_date": None,
+                "days_until": None,
+                "fiscal_period": None,
+                "source": None,
+            })
 
     risk = at_risk_positions(portfolio, earnings) if portfolio else []
 
