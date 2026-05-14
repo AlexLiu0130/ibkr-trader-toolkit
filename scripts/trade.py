@@ -166,6 +166,10 @@ def _resolve_outside_rth(args) -> tuple[bool, str]:
         (et_now.hour, et_now.minute) >= (9, 30)
         and (et_now.hour, et_now.minute) < (16, 0)
     )
+    # NOTE: early-close days (Black Friday, Christmas Eve, day before July 4)
+    # close at 13:00 ET. We do NOT hardcode the NYSE calendar — on those
+    # afternoons (~3 days/year) `auto` may incorrectly return RTH. Use
+    # `--outside-rth` explicitly if a same-day order isn't filling.
     if in_rth:
         return False, f"outsideRth=False (auto, RTH: ET {et_now:%H:%M})"
     else:

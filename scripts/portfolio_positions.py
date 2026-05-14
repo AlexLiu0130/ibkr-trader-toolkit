@@ -102,8 +102,28 @@ def fetch_positions(ib) -> dict:
             entry["right"] = c.right
             multiplier = float(c.multiplier) if c.multiplier else 100.0
             entry["multiplier"] = multiplier
+            # On OPT entries, `market_price` is the OPTION's mid/last price (NOT the
+            # underlying spot). We expose it explicitly as `option_price` to remove
+            # any ambiguity, and lift `und_price` to the top level so ITM/OTM
+            # judgement always uses the right two numbers.
+            entry["option_price"] = entry.get("market_price")
 
             g = greeks_map.get(c.conId)
+            und_price = g["und_price"] if g else None
+            entry["und_price"] = und_price
+            if und_price is not None:
+                if c.right == "C":
+                    entry["itm"] = und_price > c.strike
+                elif c.right == "P":
+                    entry["itm"] = und_price < c.strike
+                else:
+                    entry["itm"] = None
+                # signed distance: positive = call-side of strike, negative = put-side
+                entry["moneyness"] = round(und_price - c.strike, 2)
+            else:
+                entry["itm"] = None
+                entry["moneyness"] = None
+
             if g:
                 entry["greeks"] = g
                 pos_delta = (g["delta"] or 0) * qty * multiplier

@@ -32,6 +32,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -73,9 +74,49 @@ def fetch_session_option_fills(ib, symbols: set[str]) -> list[dict]:
             "qty": float(e.shares),
             "price": float(e.price),
             "commission": float(getattr(cr, "commission", 0.0) or 0.0),
+            "trade_date": getattr(e, "time", None).strftime("%Y%m%d") if getattr(e, "time", None) else None,
+            "exec_id": getattr(e, "execId", None),
             "source": "session",
         })
     return out
+
+
+def _dedup_fills(session_fills: list[dict], flex_fills: list[dict]) -> list[dict]:
+    """Merge session + flex fills, dropping any flex row that duplicates a
+    session row. Session is preferred (more authoritative, fresher).
+
+    Same-day partial fills at identical price are common (TWS splits a market
+    order across exchanges), so the dedup key includes an occurrence index
+    counted within each source. (`exec_id` is not used here because session
+    emits `e.execId` like "00018037.xxx" while Flex emits a numeric
+    `TradeID` — the two formats can't be compared directly.)
+    """
+    def _base(f: dict) -> tuple:
+        return (
+            f.get("symbol"),
+            f.get("right"),
+            round(float(f.get("strike") or 0), 2),
+            f.get("expiration"),
+            f.get("side"),
+            round(float(f.get("qty") or 0), 4),
+            round(float(f.get("price") or 0), 4),
+            f.get("trade_date"),
+        )
+
+    def _keyed(fills: list[dict]) -> list[tuple]:
+        seen: dict[tuple, int] = {}
+        out = []
+        for f in fills:
+            b = _base(f)
+            idx = seen.get(b, 0)
+            seen[b] = idx + 1
+            out.append((*b, idx))
+        return out
+
+    session_keys = set(_keyed(session_fills))
+    flex_keyed = _keyed(flex_fills)
+    deduped_flex = [f for f, k in zip(flex_fills, flex_keyed) if k not in session_keys]
+    return session_fills + deduped_flex
 
 
 def fetch_flex_option_fills(flex_dir: Path, symbols: set[str]) -> list[dict]:
@@ -106,6 +147,12 @@ def fetch_flex_option_fills(flex_dir: Path, symbols: set[str]) -> list[dict]:
                         commission = float(row.get("IBCommission") or 0)
                     except ValueError:
                         continue
+                    trade_date_raw = (row.get("TradeDate") or row.get("Date/Time")
+                                      or row.get("Date") or "")
+                    # Flex emits YYYYMMDD, YYYY-MM-DD, or YYYYMMDD;HHMMSS — extract
+                    # the leading date only.
+                    m = re.match(r"(\d{4})-?(\d{2})-?(\d{2})", trade_date_raw)
+                    trade_date = (m.group(1) + m.group(2) + m.group(3)) if m else None
                     out.append({
                         "symbol": sym,
                         "right": right or None,
@@ -115,6 +162,8 @@ def fetch_flex_option_fills(flex_dir: Path, symbols: set[str]) -> list[dict]:
                         "qty": qty,
                         "price": price,
                         "commission": commission,
+                        "trade_date": trade_date,
+                        "exec_id": row.get("TradeID") or row.get("OrderID"),
                         "source": f"flex:{csv_path.name}",
                     })
         except Exception as e:
@@ -251,10 +300,13 @@ def main() -> int:
     flex_fills = fetch_flex_option_fills(flex_dir, target_symbols)
     log(f"flex option fills: {len(flex_fills)}")
 
-    option_fills = session_fills + flex_fills
+    option_fills = _dedup_fills(session_fills, flex_fills)
+    n_dropped = len(session_fills) + len(flex_fills) - len(option_fills)
+    if n_dropped:
+        log(f"  deduped {n_dropped} flex fills already present in session")
     source_window = "session"
     if flex_fills:
-        source_window += f" + flex({len([f for f in flex_fills])} rows)"
+        source_window += f" + flex({len(flex_fills)} rows, {n_dropped} dup)"
 
     reports = []
     for sym in sorted(target_symbols):

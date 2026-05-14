@@ -58,6 +58,7 @@ def _fetch_portfolio(ib) -> dict:
                     "iv": g.impliedVol,
                     "delta": g.delta,
                     "theta": g.theta,
+                    "und_price": g.undPrice,
                 }
         for c in option_contracts:
             ib.cancelMktData(c)
@@ -77,13 +78,27 @@ def _fetch_portfolio(ib) -> dict:
         if c.secType == "OPT":
             exp = c.lastTradeDateOrContractMonth
             exp_date = datetime.strptime(exp, "%Y%m%d").date()
+            g = greeks_map.get(c.conId)
+            und_price = g["und_price"] if g else None
+            if und_price is not None:
+                itm = (und_price > c.strike) if c.right == "C" else (und_price < c.strike) if c.right == "P" else None
+                moneyness = round(und_price - c.strike, 2)
+            else:
+                itm = None
+                moneyness = None
+            # `market_price` (above) is the OPTION's price — not the underlying.
+            # Expose `option_price` explicitly and lift `und_price` to the top.
+            entry["option_price"] = entry["market_price"]
             entry.update({
                 "expiration": exp_date.isoformat(),
                 "dte": (exp_date - date.today()).days,
                 "strike": c.strike,
                 "right": c.right,
                 "multiplier": float(c.multiplier) if c.multiplier else 100.0,
-                "greeks": greeks_map.get(c.conId),
+                "und_price": und_price,
+                "itm": itm,
+                "moneyness": moneyness,
+                "greeks": g,
             })
         result.append(entry)
     return result
@@ -98,12 +113,14 @@ def _expiry_warning(pos: dict, chain_data: dict) -> dict:
     qty = abs(pos["position"])
     mult = pos.get("multiplier", 100.0)
     is_short = pos["position"] < 0
-    market_price = pos.get("market_price") or 0
+    option_price = pos.get("option_price") or pos.get("market_price") or 0
     upnl = pos.get("unrealized_pnl") or 0
+    und_price = pos.get("und_price")
+    itm = pos.get("itm")
 
     # short: close_cost = cost to buy back (positive = cash you must pay)
     # long:  close_cost = sale proceeds (positive = cash you receive)
-    close_cost = round(market_price * qty * mult, 2) if market_price else None
+    close_cost = round(option_price * qty * mult, 2) if option_price else None
 
     roll_target = None
     for exp_group in chain_data.get("chain", []):
@@ -115,7 +132,7 @@ def _expiry_warning(pos: dict, chain_data: dict) -> dict:
                 opt = candidates[0]
                 # roll_net: net credit when rolling a short position (far-month bid - near-month buyback ask).
                 # Positive = net premium received.
-                roll_net = round((opt["bid"] - market_price) * qty * mult, 2) if is_short else None
+                roll_net = round((opt["bid"] - option_price) * qty * mult, 2) if is_short else None
                 roll_target = {
                     "expiration": exp_group["expiration"],
                     "dte": exp_group["dte"],
@@ -131,7 +148,11 @@ def _expiry_warning(pos: dict, chain_data: dict) -> dict:
     return {
         "urgency": urgency,
         "is_short": is_short,
-        "current_price": market_price,
+        "option_price": option_price,
+        "und_price": und_price,
+        "itm": itm,
+        "strike": strike,
+        "right": right,
         "close_cost": close_cost,
         "unrealized_pnl": upnl,
         "roll_target": roll_target,
@@ -196,7 +217,9 @@ def _recommend_contracts(symbol: str, chain_data: dict, iv_env: dict,
                 pop = None
 
             max_profit = round(mid * 100, 2) if action == "SELL" else None
-            max_loss = round(-opt["strike"] * 100, 2) if action == "SELL" and right == "P" else (
+            # Short put max loss = -(strike - premium) * 100, NOT -strike * 100.
+            # (Stock can go to 0; assignment cost = strike, but you keep the premium.)
+            max_loss = round(-(opt["strike"] - mid) * 100, 2) if action == "SELL" and right == "P" else (
                 round(-mid * 100, 2) if action == "BUY" else None
             )
 
@@ -210,8 +233,8 @@ def _recommend_contracts(symbol: str, chain_data: dict, iv_env: dict,
                 "bid": bid,
                 "ask": ask,
                 "mid": mid,
-                "iv": round(iv, 4) if iv else None,
-                "delta": round(delta, 3) if delta else None,
+                "iv": round(iv, 4) if iv is not None else None,
+                "delta": round(delta, 3) if delta is not None else None,
                 "probability_of_profit": pop,
                 "max_profit_per_contract": max_profit,
                 "max_loss_per_contract": max_loss,

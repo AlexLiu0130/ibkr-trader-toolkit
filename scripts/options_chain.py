@@ -167,6 +167,11 @@ def fetch_chain(
         raise RuntimeError(f"Could not fetch current price for {symbol}")
     log(f"  underlying price: {underlying_price}")
 
+    # IBKR auto-upgrades requested type 3 (delayed) to 1 (live) for subscribed
+    # tickers; reflect what actually came back, not what was requested.
+    _DT_NAMES = {1: "realtime", 2: "frozen", 3: "delayed", 4: "delayed-frozen"}
+    data_type = _DT_NAMES.get(getattr(t, "marketDataType", None), "unknown")
+
     chains = ib.reqSecDefOptParams(
         q.symbol, "", q.secType, q.conId,
     )
@@ -229,7 +234,7 @@ def fetch_chain(
     return {
         "symbol": symbol,
         "underlying_price": underlying_price,
-        "data_type": "realtime",
+        "data_type": data_type,
         "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "chain": chain_output,
     }

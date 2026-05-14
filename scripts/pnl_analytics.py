@@ -152,6 +152,52 @@ def fetch_flex_trades(flex_dir: Path, since_date: date) -> list[dict]:
     return trades
 
 
+def _dedup_trades(session_trades: list[dict], flex_trades: list[dict]) -> list[dict]:
+    """Drop flex trades that duplicate session trades. Session is preferred.
+
+    Same-day partial fills at identical price are common (TWS splits a market
+    order across exchanges), so the dedup key includes an occurrence index
+    counted within each source. That way 3 session fills + 3 flex copies of
+    the same partial-fill set match 1:1 without collapsing the legitimate
+    multi-fill into one.
+    """
+    def _key(t: dict, idx: int) -> tuple:
+        return (
+            t.get("symbol"),
+            t.get("sec_type"),
+            t.get("right"),
+            round(float(t.get("strike") or 0), 2),
+            t.get("expiration"),
+            t.get("side"),
+            round(float(t.get("shares") or 0), 4),
+            round(float(t.get("price") or 0), 4),
+            t.get("date"),
+            idx,
+        )
+
+    def _keyed(trades: list[dict]) -> list[tuple]:
+        seen: dict[tuple, int] = {}
+        out = []
+        for t in trades:
+            base = (
+                t.get("symbol"), t.get("sec_type"), t.get("right"),
+                round(float(t.get("strike") or 0), 2), t.get("expiration"),
+                t.get("side"),
+                round(float(t.get("shares") or 0), 4),
+                round(float(t.get("price") or 0), 4),
+                t.get("date"),
+            )
+            idx = seen.get(base, 0)
+            seen[base] = idx + 1
+            out.append(_key(t, idx))
+        return out
+
+    session_keys = set(_keyed(session_trades))
+    flex_keyed = _keyed(flex_trades)
+    deduped_flex = [t for t, k in zip(flex_trades, flex_keyed) if k not in session_keys]
+    return session_trades + deduped_flex
+
+
 def aggregate(trades: list[dict], group_by: str) -> dict:
     groups: dict[str, list[dict]] = defaultdict(list)
     for t in trades:
@@ -188,14 +234,19 @@ def main() -> int:
 
     log(f"🔄 PnL analytics: since {since_date.isoformat()} ...")
 
-    trades: list[dict] = []
+    session_trades: list[dict] = []
     try:
         with ib_connect(client_id_offset=CLIENT_ID_OFFSET) as ib:
-            trades.extend(fetch_session_trades(ib, since_date))
+            session_trades = fetch_session_trades(ib, since_date)
     except Exception as e:
         log(f"  ⚠️  Session fills fetch failed: {e}")
 
-    trades.extend(fetch_flex_trades(flex_dir, since_date))
+    flex_trades = fetch_flex_trades(flex_dir, since_date)
+
+    trades = _dedup_trades(session_trades, flex_trades)
+    n_dropped = len(session_trades) + len(flex_trades) - len(trades)
+    if n_dropped:
+        log(f"  deduped {n_dropped} flex trades already present in session")
 
     if not trades:
         log("  ⚠️  No fills available (empty session and no Flex files)")

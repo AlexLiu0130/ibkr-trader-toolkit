@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-05-14
+
+### Fixed
+- **ITM/OTM judgement bug (root cause was schema, not math).** Earlier
+  versions of `portfolio_positions.py` and `options_daily.py` exposed the
+  *option contract's* mid price as `market_price` at the top of every OPT
+  entry while burying the *underlying spot* inside `greeks.und_price`.
+  Agents reading the JSON compared the two top-level numbers (`market_price`
+  vs `strike`) and reported the wrong ITM/OTM status. Each OPT entry now
+  emits `option_price` (explicit rename of the contract price), `und_price`,
+  `itm`, and `moneyness` (= `und_price - strike`) at the top level.
+  `options_daily.py` propagates the same fields into the `expiry_warning`
+  payload. When Greeks are unavailable, `und_price` and `itm` are `null`
+  (never silently `false`).
+- **Short-put `max_loss` formula** in `options_daily.py`. Was
+  `-strike * 100`; correct is `-(strike - premium) * 100` (the credit
+  received offsets the assignment-cost loss). Previously over-reported the
+  worst case by the full premium amount on every short-put recommendation.
+- **`options_chain.py` data freshness lie.** `data_type` was hard-coded to
+  `"realtime"` regardless of `IBKR_MARKET_DATA_TYPE` or whether IBKR
+  actually upgraded the feed. Now reflects the ticker's real
+  `marketDataType` (`realtime` / `frozen` / `delayed` / `delayed-frozen`).
+- **Double-counting between session and Flex fills** in `cost_basis.py` and
+  `pnl_analytics.py`. When a Flex CSV overlapped the IBKR session's ~2-day
+  window, the same fill landed in both lists, doubling premiums collected
+  and realized P&L. Both scripts now deduplicate by
+  `(symbol, right, strike, expiration, side, qty, price, trade_date)` with
+  a per-tuple occurrence index, so legitimate same-day partial fills at the
+  same price (TWS splits market orders across exchanges) are preserved.
+- **`options_analyzer.py` falsy bugs**: `not all(prices)` rejected legal
+  `price=0.0` (far-OTM bids) — switched to `is None` check. `type` field
+  no longer claims `"credit"` when `all_priced=False`. `probability_of_profit`
+  renamed to `pop_approx_first_leg` on multi-leg strategies to flag that
+  it's a single-leg heuristic.
+- **`wheel_tracker._current_stage`** now returns `"closed"` for the
+  no-positions-but-has-journal case (was `"called_away"`, which is
+  unverifiable from positions alone).
+- **`trade.py` RTH auto-detection** — documented the early-close edge case
+  (Black Friday / Christmas Eve / day before July 4 close at 13:00 ET).
+  Auto-detection still uses the regular 09:30–16:00 window; use
+  `--outside-rth` explicitly on those ~3 days/year.
+
+### Why
+Atlas (the consuming agent) reported reading wrong ITM/OTM status from
+position output. Root-cause analysis showed it wasn't a math bug — the
+script never told consumers *where to find* the underlying spot price.
+Fixing this with schema (lift `und_price` to the top, add an explicit
+`itm` boolean) prevents the next agent from making the same inference.
+
 ## [0.2.4] - 2026-05-14
 
 ### Changed
@@ -194,7 +243,8 @@ have to remember the flag in normal use.
 - Reference docs: full strategy library, Greeks primer, wheel strategy guide,
   troubleshooting.
 
-[Unreleased]: https://github.com/AlexLiu0130/ibkr-options-assistant/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/AlexLiu0130/ibkr-options-assistant/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.5
 [0.2.4]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.4
 [0.2.3]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.3
 [0.2.2]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.2

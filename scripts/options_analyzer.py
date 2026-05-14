@@ -533,12 +533,12 @@ def build_strategy(strategy_key: str, chain_data: dict,
         "direction": strategy["direction"],
         "legs": legs,
         "net_debit_credit": round(total_debit, 2) if all_priced else None,
-        "type": "debit" if total_debit > 0 else "credit",
+        "type": ("debit" if total_debit > 0 else "credit") if all_priced else None,
         "max_profit": max_profit,
         "max_loss": max_loss,
         "breakeven": breakeven,
         "risk_reward_ratio": rr_ratio,
-        "probability_of_profit": prob_profit,
+        "pop_approx_first_leg": prob_profit,
         "description": strategy["description"],
     }
 
@@ -546,7 +546,7 @@ def build_strategy(strategy_key: str, chain_data: dict,
 def _calc_risk_reward(strategy_key: str, legs, underlying_price: float,
                       step: float):
     prices = [l.get("price") for l in legs]
-    if not all(prices):
+    if any(p is None for p in prices):
         return None, None, None
 
     s = STRATEGIES[strategy_key]

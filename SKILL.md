@@ -75,7 +75,7 @@ Flag any of:
 wheel_tracker.py summary
 ```
 
-Returns per-symbol: stage (`short_put` / `assigned` / `covered_call` / `called_away`), cumulative premium, days in cycle, annualized return.
+Returns per-symbol: stage (`short_put` / `assigned` / `covered_call` / `closed`), cumulative premium, days in cycle, annualized return.
 
 ---
 

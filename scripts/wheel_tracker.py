@@ -9,7 +9,8 @@ Stage definitions:
   short_put     short put open, not yet assigned
   assigned      holds the stock, waiting to write a covered call
   covered_call  short call written against the stock (covered)
-  called_away   stock called away, wheel cycle complete
+  closed        no current positions; cycle ended (called away, expired
+                worthless, or bought back — can't tell which from positions alone)
 
 Usage:
   python wheel_tracker.py add-entry AAPL 200 2026-06-26 3.50
@@ -81,7 +82,11 @@ def _current_stage(symbol: str, positions: list[dict]) -> str:
         return "assigned"
     if short_puts:
         return "short_put"
-    return "called_away"
+    # No positions but journal exists → cycle closed. Can't reliably tell
+    # whether the underlying was called away vs. the put expired worthless
+    # vs. the put was bought back without seeing the closing fill, so use
+    # a neutral label.
+    return "closed"
 
 
 def _annualized_return(total_premium: float, total_capital: float,
