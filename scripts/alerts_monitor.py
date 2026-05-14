@@ -8,6 +8,15 @@ Variables available inside a condition expression:
   dte              days to expiration (taken from a matched position)
   unrealized_pnl   unrealized P&L of this symbol's portfolio leg
 
+Condition syntax (parsed via ast, no eval):
+  - numeric literals and the variables above
+  - comparisons: < <= > >= == !=
+  - boolean: and / or / not
+  - arithmetic: + - * /  (and unary -)
+  - functions: abs() min() max() round()
+  Anything else (attribute access, indexing, other function calls,
+  comprehensions, lambdas) is rejected at parse time.
+
 Example ~/.ibkr_alerts.yaml:
   - symbol: AAPL
     condition: "price < 180 or unrealized_pnl < -500"
@@ -25,7 +34,9 @@ Usage:
 """
 
 import argparse
+import ast
 import json
+import operator
 import os
 import sys
 from datetime import datetime, date
@@ -141,14 +152,76 @@ def gather_values(ib, symbol: str, portfolio: dict) -> dict:
     }
 
 
-_SAFE_BUILTINS = {"abs": abs, "min": min, "max": max, "round": round, "len": len}
+_BIN_OPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub,
+    ast.Mult: operator.mul, ast.Div: operator.truediv,
+}
+_CMP_OPS = {
+    ast.Lt: operator.lt, ast.LtE: operator.le,
+    ast.Gt: operator.gt, ast.GtE: operator.ge,
+    ast.Eq: operator.eq, ast.NotEq: operator.ne,
+}
+_ALLOWED_FUNCS = {"abs": abs, "min": min, "max": max, "round": round}
+
+
+def _eval_node(node: ast.AST, vars_: dict):
+    if isinstance(node, ast.Expression):
+        return _eval_node(node.body, vars_)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float, bool)):
+            return node.value
+        raise ValueError(f"unsupported literal: {type(node.value).__name__}")
+    if isinstance(node, ast.Name):
+        if node.id not in vars_:
+            raise ValueError(f"unknown variable: {node.id}")
+        return vars_[node.id]
+    if isinstance(node, ast.UnaryOp):
+        v = _eval_node(node.operand, vars_)
+        if isinstance(node.op, ast.USub):
+            return -v
+        if isinstance(node.op, ast.UAdd):
+            return +v
+        if isinstance(node.op, ast.Not):
+            return not v
+        raise ValueError(f"unsupported unary op: {type(node.op).__name__}")
+    if isinstance(node, ast.BinOp):
+        op = _BIN_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"unsupported binary op: {type(node.op).__name__}")
+        return op(_eval_node(node.left, vars_), _eval_node(node.right, vars_))
+    if isinstance(node, ast.BoolOp):
+        vals = [_eval_node(v, vars_) for v in node.values]
+        if isinstance(node.op, ast.And):
+            return all(vals)
+        if isinstance(node.op, ast.Or):
+            return any(vals)
+        raise ValueError(f"unsupported bool op: {type(node.op).__name__}")
+    if isinstance(node, ast.Compare):
+        left = _eval_node(node.left, vars_)
+        for op_node, right_node in zip(node.ops, node.comparators):
+            op = _CMP_OPS.get(type(op_node))
+            if op is None:
+                raise ValueError(f"unsupported comparison: {type(op_node).__name__}")
+            right = _eval_node(right_node, vars_)
+            if not op(left, right):
+                return False
+            left = right
+        return True
+    if isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name) or node.func.id not in _ALLOWED_FUNCS:
+            raise ValueError("only abs/min/max/round are callable")
+        if node.keywords:
+            raise ValueError("keyword arguments not allowed")
+        args = [_eval_node(a, vars_) for a in node.args]
+        return _ALLOWED_FUNCS[node.func.id](*args)
+    raise ValueError(f"unsupported expression: {type(node).__name__}")
 
 
 def evaluate(condition: str, values: dict) -> tuple[bool, str | None]:
-    safe_globals = {"__builtins__": _SAFE_BUILTINS}
-    safe_locals = {k: (v if v is not None else float("nan")) for k, v in values.items()}
+    safe_vars = {k: (v if v is not None else float("nan")) for k, v in values.items()}
     try:
-        return bool(eval(condition, safe_globals, safe_locals)), None
+        tree = ast.parse(condition, mode="eval")
+        return bool(_eval_node(tree, safe_vars)), None
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
 
