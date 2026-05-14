@@ -34,6 +34,7 @@ import os
 import sys
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from typing import Any, Optional
 
 from ib_async import (
@@ -136,6 +137,41 @@ def _contract_dict(c: Contract) -> dict[str, Any]:
     return base
 
 
+def _resolve_outside_rth(args) -> tuple[bool, str]:
+    """Decide whether to set order.outsideRth based on CLI flags.
+
+    Returns (outside_rth_bool, reason_str). The reason is appended to checks.notes
+    so the user can see exactly why their order was tagged a certain way.
+
+    Flag precedence (mutually exclusive in argparse):
+      --outside-rth       → always True (explicit override)
+      --rth-only          → always False (explicit override)
+      --auto-rth (default) → True iff current time is outside US/Eastern RTH (09:30–16:00 Mon–Fri)
+    """
+    if getattr(args, "outside_rth", False):
+        return True, "outsideRth=True (explicit --outside-rth)"
+    if getattr(args, "rth_only", False):
+        return False, "outsideRth=False (explicit --rth-only)"
+
+    # Auto mode: check if NOW is outside US/Eastern regular trading hours.
+    try:
+        from zoneinfo import ZoneInfo
+        et_now = datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        # Fallback: assume RTH (safer default — no extended-hours fills)
+        return False, "outsideRth=False (auto, tz unavailable)"
+
+    is_weekday = et_now.weekday() < 5
+    in_rth = is_weekday and (
+        (et_now.hour, et_now.minute) >= (9, 30)
+        and (et_now.hour, et_now.minute) < (16, 0)
+    )
+    if in_rth:
+        return False, f"outsideRth=False (auto, RTH: ET {et_now:%H:%M})"
+    else:
+        return True, f"outsideRth=True (auto, extended-hours: ET {et_now:%H:%M %a})"
+
+
 def _order_payload(
     *,
     symbol: str,
@@ -146,6 +182,7 @@ def _order_payload(
     limit_price: Optional[float],
     stop_price: Optional[float],
     tif: str,
+    outside_rth: bool = False,
 ) -> dict[str, Any]:
     return {
         "symbol": symbol,
@@ -156,6 +193,7 @@ def _order_payload(
         "limit_price": limit_price,
         "stop_price": stop_price,
         "tif": tif,
+        "outside_rth": outside_rth,
     }
 
 
@@ -167,6 +205,7 @@ def _build_order(
     limit_price: Optional[float],
     stop_price: Optional[float],
     tif: str,
+    outside_rth: bool = False,
 ) -> Order:
     """Build an ib_async Order object from CLI args."""
     ot = order_type.upper()
@@ -183,6 +222,8 @@ def _build_order(
     else:
         raise ValueError(f"Unknown --order-type '{order_type}' (use MKT|LMT|STP)")
     o.tif = tif.upper()
+    if outside_rth:
+        o.outsideRth = True
     return o
 
 
@@ -333,6 +374,9 @@ def cmd_stock(args, ib, checks: Checks) -> dict[str, Any]:
                 f"Notional ~${notional:,.0f} > ${MAX_NOTIONAL_USD:,} — pass --allow-large to override"
             )
 
+    outside_rth, rth_reason = _resolve_outside_rth(args)
+    checks.notes.append(rth_reason)
+
     order = _build_order(
         action=action,
         quantity=qty,
@@ -340,6 +384,7 @@ def cmd_stock(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=args.stop_price,
         tif=args.tif,
+        outside_rth=outside_rth,
     )
 
     payload = _order_payload(
@@ -351,6 +396,7 @@ def cmd_stock(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=args.stop_price,
         tif=args.tif.upper(),
+        outside_rth=outside_rth,
     )
 
     if args.order_type.upper() != "STP":
@@ -393,6 +439,9 @@ def cmd_option(args, ib, checks: Checks) -> dict[str, Any]:
                 f"Notional ~${notional:,.0f} > ${MAX_NOTIONAL_USD:,} — pass --allow-large to override"
             )
 
+    outside_rth, rth_reason = _resolve_outside_rth(args)
+    checks.notes.append(rth_reason)
+
     order = _build_order(
         action=action,
         quantity=qty,
@@ -400,6 +449,7 @@ def cmd_option(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=None,
         tif=args.tif,
+        outside_rth=outside_rth,
     )
 
     payload = _order_payload(
@@ -411,6 +461,7 @@ def cmd_option(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=None,
         tif=args.tif.upper(),
+        outside_rth=outside_rth,
     )
 
     return _finalize(args, ib, contract, order, payload, checks, notional)
@@ -498,6 +549,9 @@ def cmd_combo(args, ib, checks: Checks) -> dict[str, Any]:
                 f"Notional ~${notional:,.0f} > ${MAX_NOTIONAL_USD:,} — pass --allow-large to override"
             )
 
+    outside_rth, rth_reason = _resolve_outside_rth(args)
+    checks.notes.append(rth_reason)
+
     order = _build_order(
         action=spread_action,
         quantity=spread_qty,
@@ -505,6 +559,7 @@ def cmd_combo(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=None,
         tif=args.tif,
+        outside_rth=outside_rth,
     )
 
     payload = _order_payload(
@@ -516,6 +571,7 @@ def cmd_combo(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=None,
         tif=args.tif.upper(),
+        outside_rth=outside_rth,
     )
     payload["legs"] = parsed_legs
 
@@ -554,6 +610,9 @@ def cmd_future(args, ib, checks: Checks) -> dict[str, Any]:
     # Futures notional is hard to estimate without contract spec; skip
     notional = None
 
+    outside_rth, rth_reason = _resolve_outside_rth(args)
+    checks.notes.append(rth_reason)
+
     order = _build_order(
         action=action,
         quantity=qty,
@@ -561,6 +620,7 @@ def cmd_future(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=args.stop_price,
         tif=args.tif,
+        outside_rth=outside_rth,
     )
 
     payload = _order_payload(
@@ -572,6 +632,7 @@ def cmd_future(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=args.stop_price,
         tif=args.tif.upper(),
+        outside_rth=outside_rth,
     )
 
     return _finalize(args, ib, contract, order, payload, checks, notional)
@@ -602,6 +663,9 @@ def cmd_forex(args, ib, checks: Checks) -> dict[str, Any]:
                 f"Notional ~${notional:,.0f} > ${MAX_NOTIONAL_USD:,} — pass --allow-large to override"
             )
 
+    outside_rth, rth_reason = _resolve_outside_rth(args)
+    checks.notes.append(rth_reason)
+
     order = _build_order(
         action=action,
         quantity=qty,
@@ -609,6 +673,7 @@ def cmd_forex(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=args.stop_price,
         tif=args.tif,
+        outside_rth=outside_rth,
     )
 
     payload = _order_payload(
@@ -620,6 +685,7 @@ def cmd_forex(args, ib, checks: Checks) -> dict[str, Any]:
         limit_price=args.limit_price,
         stop_price=args.stop_price,
         tif=args.tif.upper(),
+        outside_rth=outside_rth,
     )
 
     return _finalize(args, ib, contract, order, payload, checks, notional)
@@ -770,6 +836,19 @@ def _add_common_order_flags(p: argparse.ArgumentParser, *, default_action: str =
     p.add_argument("--limit-price", type=float, default=None)
     p.add_argument("--stop-price", type=float, default=None)
     p.add_argument("--tif", default="DAY", choices=["DAY", "GTC", "day", "gtc"])
+    rth = p.add_mutually_exclusive_group()
+    rth.add_argument(
+        "--outside-rth",
+        action="store_true",
+        help="Allow fills outside Regular Trading Hours (pre/post-market, overnight). "
+             "Overrides --auto-rth detection.",
+    )
+    rth.add_argument(
+        "--rth-only",
+        action="store_true",
+        help="Restrict to Regular Trading Hours (09:30–16:00 ET) even if placed off-hours. "
+             "Overrides --auto-rth.",
+    )
     p.add_argument(
         "--allow-large",
         action="store_true",
@@ -816,6 +895,11 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--limit-price", type=float, default=None,
                     help="Net debit (positive) or credit (negative) per spread unit")
     cp.add_argument("--tif", default="DAY", choices=["DAY", "GTC", "day", "gtc"])
+    cp_rth = cp.add_mutually_exclusive_group()
+    cp_rth.add_argument("--outside-rth", action="store_true",
+                        help="Allow fills outside RTH (pre/post-market).")
+    cp_rth.add_argument("--rth-only", action="store_true",
+                        help="Restrict to RTH only.")
     cp.add_argument("--allow-large", action="store_true")
     cp.add_argument("--confirm-trade", action="store_true")
 

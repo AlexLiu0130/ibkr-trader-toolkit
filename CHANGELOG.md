@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-14
+
+### Added
+- `trade.py` now supports extended-hours order routing. By default, the
+  script auto-detects whether the current time is inside US/Eastern Regular
+  Trading Hours (09:30–16:00 weekdays) and sets `outsideRth=True` on the
+  order when placed off-hours. Two explicit flags override this:
+    - `--outside-rth` — force outsideRth=True (pre/post-market, overnight)
+    - `--rth-only` — force outsideRth=False (RTH-only routing)
+  Both flags work for `stock`, `option`, `combo`, `future`, and `forex`
+  subcommands.
+- Order payload JSON now includes an `outside_rth` field, and the dry-run
+  preview shows the resolved value plus the reason (auto-detection or
+  explicit flag).
+
+### Why
+Without `outsideRth=True`, orders submitted off-hours sit on IBKR's gateway
+until 09:30 ET (Warning 399). With it, orders can route to ECNs during the
+pre/post-market sessions (04:00–09:30 and 16:00–20:00 ET) and to overnight
+sessions where supported. Auto-detection is the default so users don't
+have to remember the flag in normal use.
+
 ## [0.2.0] - 2026-05-14
 
 ### Added
