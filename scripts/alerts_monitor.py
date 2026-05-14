@@ -1,25 +1,25 @@
 """
-告警监控 — 从 ~/.ibkr_alerts.yaml 读规则，对每个标的拉行情/期权数据并求值条件。
+Alerts monitor — reads rules from ~/.ibkr_alerts.yaml, fetches quotes/option data per symbol, and evaluates condition expressions.
 
-可在 condition 表达式中使用的变量：
-  delta            期权 delta（持仓总和或拟议合约）
-  iv               隐含波动率
-  price            标的现价
-  dte              到期天数（找匹配持仓）
-  unrealized_pnl   组合中该标的的未实现盈亏
+Variables available inside a condition expression:
+  delta            option delta (position-level sum, or proposed contract)
+  iv               implied volatility
+  price            underlying spot price
+  dte              days to expiration (taken from a matched position)
+  unrealized_pnl   unrealized P&L of this symbol's portfolio leg
 
-示例 ~/.ibkr_alerts.yaml：
+Example ~/.ibkr_alerts.yaml:
   - symbol: AAPL
     condition: "price < 180 or unrealized_pnl < -500"
-    on_trigger: "考虑展期或平仓 short put"
+    on_trigger: "Consider rolling or closing the short put"
   - symbol: SPY
     condition: "iv > 0.25"
-    on_trigger: "卖方机会出现"
+    on_trigger: "Premium-selling opportunity"
   - symbol: NVDA
     condition: "abs(delta) > 100 and dte < 14"
-    on_trigger: "delta 过大且临近到期"
+    on_trigger: "Delta too large near expiry"
 
-用法：
+Usage:
   python alerts_monitor.py
   python alerts_monitor.py --config ~/.ibkr_alerts.yaml --output /tmp/alerts.json
 """
@@ -41,7 +41,7 @@ DEFAULT_CONFIG = Path(os.path.expanduser("~/.ibkr_alerts.yaml"))
 
 def _load_yaml(path: Path) -> list[dict]:
     if not path.exists():
-        log(f"⚠️  配置文件不存在: {path}")
+        log(f"⚠️  Config file not found: {path}")
         return []
     try:
         import yaml  # type: ignore
@@ -49,7 +49,7 @@ def _load_yaml(path: Path) -> list[dict]:
             data = yaml.safe_load(f) or []
         return data if isinstance(data, list) else []
     except ImportError:
-        # 极简 fallback：每条规则三行 "- symbol: X" / "  condition: ..." / "  on_trigger: ..."
+        # Minimal fallback: each rule is three lines "- symbol: X" / "  condition: ..." / "  on_trigger: ..."
         rules: list[dict] = []
         cur: dict = {}
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -85,17 +85,17 @@ def _spot_price(ib, symbol: str) -> float | None:
         if bars:
             return round(float(bars[-1].close), 4)
     except Exception as e:
-        log(f"  {symbol} spot 获取失败: {e}")
+        log(f"  {symbol} spot fetch failed: {e}")
     return None
 
 
 def gather_values(ib, symbol: str, portfolio: dict) -> dict:
-    """聚合该标的的 price / delta / iv / dte / unrealized_pnl。"""
+    """Aggregate price / delta / iv / dte / unrealized_pnl for this symbol."""
     sym_positions = [p for p in portfolio.get("positions", [])
                      if p.get("symbol") == symbol]
     opt_positions = [p for p in sym_positions if p.get("sec_type") == "OPT"]
 
-    # delta：仓位 delta 之和
+    # delta: sum of position deltas
     delta = 0.0
     iv_vals = []
     min_dte = None
@@ -114,7 +114,7 @@ def gather_values(ib, symbol: str, portfolio: dict) -> dict:
         except Exception:
             pass
 
-    # 股票 delta 计入
+    # stock delta is included
     for p in sym_positions:
         if p.get("sec_type") == "STK":
             delta += float(p.get("position") or 0)
@@ -154,16 +154,16 @@ def evaluate(condition: str, values: dict) -> tuple[bool, str | None]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="告警监控")
+    parser = argparse.ArgumentParser(description="Alerts monitor")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG),
-                        help="规则文件路径 (default ~/.ibkr_alerts.yaml)")
-    parser.add_argument("--output", help="输出文件路径（默认 stdout）")
+                        help="rules file path (default ~/.ibkr_alerts.yaml)")
+    parser.add_argument("--output", help="output file path (default stdout)")
     args = parser.parse_args()
 
     config_path = Path(os.path.expanduser(args.config))
     rules = _load_yaml(config_path)
     if not rules:
-        log(f"❌ 无可用规则: {config_path}")
+        log(f"❌ No usable rules: {config_path}")
         result = {
             "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "rules_evaluated": 0,
@@ -172,7 +172,7 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
-    log(f"🔄 评估 {len(rules)} 条规则 ...")
+    log(f"🔄 Evaluating {len(rules)} rule(s) ...")
 
     triggers = []
     evaluated = 0
@@ -192,7 +192,7 @@ def main() -> int:
                 fired, err = evaluate(cond, values)
                 evaluated += 1
                 if err:
-                    log(f"  ⚠️  {sym} 规则错误: {err}")
+                    log(f"  ⚠️  {sym} rule error: {err}")
                     continue
                 if fired:
                     triggers.append({
@@ -202,7 +202,7 @@ def main() -> int:
                         "message": rule.get("on_trigger", "triggered"),
                     })
     except Exception as e:
-        log(f"❌ 失败: {e}")
+        log(f"❌ Failed: {e}")
         return 1
 
     result = {
@@ -218,11 +218,11 @@ def main() -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, args.output)
-        log(f"📁 已保存到 {args.output}")
+        log(f"📁 Saved to {args.output}")
     else:
         print(json_str)
 
-    log(f"✅ 完成: {len(triggers)}/{evaluated} 触发")
+    log(f"✅ Done: {len(triggers)}/{evaluated} triggered")
     return 0
 
 

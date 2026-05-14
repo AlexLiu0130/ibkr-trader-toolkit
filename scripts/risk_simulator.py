@@ -1,15 +1,15 @@
 """
-风险模拟器 — 在当前持仓基础上叠加拟议交易，计算组合 Greeks 变化。
+Risk simulator — overlays a proposed trade on the current portfolio and shows the change in portfolio Greeks.
 
-输入：--add "SYMBOL STRIKE EXPIRY RIGHT ACTION QTY"（可重复）
-示例：--add "AAPL 200 2026-06-26 P SELL 2"
+Input: --add "SYMBOL STRIKE EXPIRY RIGHT ACTION QTY" (repeatable)
+Example: --add "AAPL 200 2026-06-26 P SELL 2"
 
-警告规则：
-  - vega 绝对值翻倍
-  - delta 符号反转
-  - 单标的 |delta| 占新 delta 总量 > 50%
+Warning rules:
+  - |vega| doubles
+  - net delta changes sign
+  - any single symbol's |delta| exceeds 30% of total |delta|
 
-用法：
+Usage:
   python risk_simulator.py --add "AAPL 200 2026-06-26 P SELL 2"
   python risk_simulator.py --add "TSLA 300 2026-07-17 C BUY 1" --add "..." --output /tmp/sim.json
 """
@@ -36,16 +36,16 @@ def _parse_leg(spec: str) -> dict:
     parts = spec.split()
     if len(parts) != 6:
         raise ValueError(
-            f'--add 需要 6 段 "SYMBOL STRIKE EXPIRY RIGHT ACTION QTY"，收到: {spec!r}'
+            f'--add requires 6 fields "SYMBOL STRIKE EXPIRY RIGHT ACTION QTY"; got: {spec!r}'
         )
     symbol, strike_s, expiry, right, action, qty_s = parts
     right = right.upper()
     action = action.upper()
     if right not in ("C", "P"):
-        raise ValueError(f"RIGHT 必须 C 或 P，收到 {right!r}")
+        raise ValueError(f"RIGHT must be C or P; got {right!r}")
     if action not in ("BUY", "SELL"):
-        raise ValueError(f"ACTION 必须 BUY 或 SELL，收到 {action!r}")
-    # 接受 2026-06-26 或 20260626
+        raise ValueError(f"ACTION must be BUY or SELL; got {action!r}")
+    # accept either 2026-06-26 or 20260626
     expiry_compact = expiry.replace("-", "")
     return {
         "symbol": symbol.upper(),
@@ -68,7 +68,7 @@ def _safe(val, ndigits=4):
 
 
 def fetch_leg_greeks(ib, leg: dict) -> dict:
-    """对拟议腿 qualify + reqMktData 拿 Greeks。"""
+    """Qualify the proposed leg and reqMktData to retrieve Greeks."""
     und = resolve(leg["symbol"])
     und_q = qualify(ib, und)
 
@@ -102,7 +102,7 @@ def fetch_leg_greeks(ib, leg: dict) -> dict:
 
 
 def leg_position_greeks(leg: dict, greeks: dict) -> dict:
-    """每张合约 Greeks × 数量 × 合约乘数 100。"""
+    """Per-contract Greeks × quantity × contract multiplier (100)."""
     mult = 100.0
     qty = _signed_qty(leg)
     return {
@@ -121,36 +121,36 @@ def detect_warnings(current: dict, simulated: dict,
     sim_vega = abs(simulated["net_vega"] or 0)
     if cur_vega > 0 and sim_vega >= 2 * cur_vega:
         warnings.append(
-            f"vega 翻倍: {round(current['net_vega'], 2)} → {round(simulated['net_vega'], 2)}"
+            f"vega doubled: {round(current['net_vega'], 2)} → {round(simulated['net_vega'], 2)}"
         )
 
     cur_delta = current["net_delta"] or 0
     sim_delta = simulated["net_delta"] or 0
     if cur_delta != 0 and (cur_delta * sim_delta < 0):
         warnings.append(
-            f"delta 符号反转: {round(cur_delta, 2)} → {round(sim_delta, 2)}"
+            f"delta sign flipped: {round(cur_delta, 2)} → {round(sim_delta, 2)}"
         )
 
     total_abs = sum(abs(v) for v in per_symbol_delta.values()) or 1
     for sym, d in per_symbol_delta.items():
         share = abs(d) / total_abs
-        if share > 0.5 and total_abs > 10:
+        if share > 0.3 and total_abs > 10:
             warnings.append(
-                f"{sym} 集中度 {round(share * 100, 1)}% (|delta|={round(abs(d), 1)})"
+                f"{sym} concentration {round(share * 100, 1)}% (|delta|={round(abs(d), 1)})"
             )
 
     return warnings
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="组合 Greeks 风险模拟器")
+    parser = argparse.ArgumentParser(description="Portfolio Greeks risk simulator")
     parser.add_argument("--add", action="append", default=[],
-                        help='拟议腿，可重复："SYMBOL STRIKE EXPIRY RIGHT ACTION QTY"')
-    parser.add_argument("--output", help="输出文件路径（默认 stdout）")
+                        help='proposed leg, repeatable: "SYMBOL STRIKE EXPIRY RIGHT ACTION QTY"')
+    parser.add_argument("--output", help="output file path (default stdout)")
     args = parser.parse_args()
 
     if not args.add:
-        log("❌ 至少需要一个 --add")
+        log("❌ At least one --add is required")
         return 1
 
     try:
@@ -159,14 +159,14 @@ def main() -> int:
         log(f"❌ {e}")
         return 1
 
-    log(f"🔄 模拟 {len(legs)} 条腿 ...")
+    log(f"🔄 Simulating {len(legs)} leg(s) ...")
 
     try:
         with ib_connect(client_id_offset=CLIENT_ID_OFFSET) as ib:
             portfolio = fetch_positions(ib)
             current_greeks = portfolio["portfolio_greeks"]
 
-            # 当前各 symbol 的 delta 贡献
+            # current per-symbol delta contribution
             per_sym_delta: dict[str, float] = defaultdict(float)
             for p in portfolio["positions"]:
                 if p.get("sec_type") == "OPT" and p.get("position_greeks"):
@@ -183,7 +183,7 @@ def main() -> int:
                 proposed.append({**leg, "per_contract_greeks": g, "position_greeks": pg})
                 per_sym_delta[leg["symbol"]] += pg["delta"]
     except Exception as e:
-        log(f"❌ 失败: {e}")
+        log(f"❌ Failed: {e}")
         return 1
 
     sim_delta = (current_greeks["net_delta"] or 0) + sum(p["position_greeks"]["delta"] for p in proposed)
@@ -216,12 +216,12 @@ def main() -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, args.output)
-        log(f"📁 已保存到 {args.output}")
+        log(f"📁 Saved to {args.output}")
     else:
         print(json_str)
 
-    log(f"✅ 完成: Δ {current_greeks['net_delta']} → {simulated_greeks['net_delta']}, "
-        f"{len(warnings)} 个警告")
+    log(f"✅ Done: Δ {current_greeks['net_delta']} → {simulated_greeks['net_delta']}, "
+        f"{len(warnings)} warning(s)")
     return 0
 
 

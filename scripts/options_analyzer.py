@@ -1,12 +1,13 @@
 """
-期权策略分析器 — 根据标的、市场观点和风险偏好推荐最优策略。
+Options strategy analyzer — recommends the best strategy for a given symbol, market outlook, and risk profile.
 
-综合 McMillan《Options as a Strategic Investment》和 Overby《The Options Playbook》的
-完整策略体系，分 4 级：Rookie → Intermediate → Advanced → Expert。
+Combines the full strategy library from McMillan's *Options as a Strategic Investment* and
+Overby's *The Options Playbook*, organized in 4 tiers: Rookie → Intermediate → Advanced → Expert.
 
-根据 outlook + risk_profile + IV 环境自动推荐并用实际期权链定价计算风险收益。
+Picks candidates based on outlook + risk_profile + IV environment, then prices the legs against the
+live option chain to compute risk/reward.
 
-用法：
+Usage:
   python options_analyzer.py SPY --outlook bullish
   python options_analyzer.py AAPL --outlook neutral --risk-profile conservative
   python options_analyzer.py SPY --outlook bearish --chain-file /tmp/spy_chain.json
@@ -28,11 +29,11 @@ CLIENT_ID_OFFSET = 10
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 策略库（McMillan + Overby 综合）
+# Strategy library (McMillan + Overby combined)
 # ═══════════════════════════════════════════════════════════════════
 
 STRATEGIES = {
-    # ─── Tier 1: Rookie（单腿基础）───
+    # ─── Tier 1: Rookie (single-leg basics) ───
     "long_call": {
         "name": "Long Call",
         "name_cn": "买入看涨",
@@ -41,7 +42,7 @@ STRATEGIES = {
         "legs": [{"action": "BUY", "right": "C", "strike_offset": 0}],
         "risk_profiles": ["aggressive"],
         "iv_preference": "low",
-        "description": "直接买入 call，看涨且预期大幅上涨。最大亏损为权利金，盈利无上限。",
+        "description": "Buy a call outright. Bullish with expectation of a large up move. Max loss = premium, unlimited upside.",
     },
     "long_put": {
         "name": "Long Put",
@@ -51,7 +52,7 @@ STRATEGIES = {
         "legs": [{"action": "BUY", "right": "P", "strike_offset": 0}],
         "risk_profiles": ["aggressive"],
         "iv_preference": "low",
-        "description": "直接买入 put，看跌且预期大幅下跌。最大亏损为权利金。",
+        "description": "Buy a put outright. Bearish with expectation of a large down move. Max loss = premium.",
     },
     "cash_secured_put": {
         "name": "Cash-Secured Put",
@@ -61,7 +62,7 @@ STRATEGIES = {
         "legs": [{"action": "SELL", "right": "P", "strike_offset": -2}],
         "risk_profiles": ["conservative", "moderate"],
         "iv_preference": "high",
-        "description": "卖出 put 并留足现金，愿意在低价接股票。收取权利金，若被行权则以行权价买入。",
+        "description": "Sell a put while reserving the cash to buy the shares if assigned. Collect premium; if assigned, buy stock at the strike.",
     },
     "covered_call": {
         "name": "Covered Call",
@@ -72,7 +73,7 @@ STRATEGIES = {
         "risk_profiles": ["conservative", "moderate"],
         "iv_preference": "high",
         "requires_stock": True,
-        "description": "持有股票 + 卖出 OTM call，增加持仓收入。上行被限，但收取权利金降低成本。",
+        "description": "Long stock + sell OTM call. Generates income on a stock position; caps upside but lowers cost basis via premium.",
     },
     "protective_put": {
         "name": "Protective Put",
@@ -83,10 +84,10 @@ STRATEGIES = {
         "risk_profiles": ["conservative"],
         "iv_preference": "low",
         "requires_stock": True,
-        "description": "持有股票 + 买入 put，为持仓提供下行保护，类似保险。",
+        "description": "Long stock + buy put. Insurance on a stock position — provides downside protection.",
     },
 
-    # ─── Tier 2: Intermediate（双腿价差）───
+    # ─── Tier 2: Intermediate (two-leg spreads) ───
     "bull_call_spread": {
         "name": "Bull Call Spread",
         "name_cn": "牛市看涨价差",
@@ -98,7 +99,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate"],
         "iv_preference": "neutral",
-        "description": "买低行权价 call + 卖高行权价 call。温和看涨，限制成本和盈利上限。",
+        "description": "Buy lower-strike call + sell higher-strike call. Moderately bullish; caps both cost and profit.",
     },
     "bear_put_spread": {
         "name": "Bear Put Spread",
@@ -111,7 +112,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate"],
         "iv_preference": "neutral",
-        "description": "买高行权价 put + 卖低行权价 put。温和看跌，限制成本。",
+        "description": "Buy higher-strike put + sell lower-strike put. Moderately bearish; caps cost.",
     },
     "bull_put_spread": {
         "name": "Bull Put Spread",
@@ -124,7 +125,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate"],
         "iv_preference": "high",
-        "description": "卖高行权价 put + 买低行权价 put。看涨收权利金，有限风险。",
+        "description": "Sell higher-strike put + buy lower-strike put. Bullish credit spread with defined risk.",
     },
     "bear_call_spread": {
         "name": "Bear Call Spread",
@@ -137,7 +138,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate"],
         "iv_preference": "high",
-        "description": "卖低行权价 call + 买高行权价 call。看跌收权利金。",
+        "description": "Sell lower-strike call + buy higher-strike call. Bearish credit spread.",
     },
     "long_straddle": {
         "name": "Long Straddle",
@@ -150,7 +151,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate", "aggressive"],
         "iv_preference": "low",
-        "description": "买入同行权价 call + put。预期大幅波动方向不确定，需突破两端 breakeven。",
+        "description": "Buy call + put at the same strike. Expects a large move in either direction; needs to clear both breakevens.",
     },
     "short_straddle": {
         "name": "Short Straddle",
@@ -163,7 +164,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["aggressive"],
         "iv_preference": "high",
-        "description": "卖出同行权价 call + put。预期横盘，收取双倍权利金，风险无限。",
+        "description": "Sell call + put at the same strike. Expects range-bound action; collects double premium with unlimited risk.",
     },
     "long_strangle": {
         "name": "Long Strangle",
@@ -176,7 +177,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate"],
         "iv_preference": "low",
-        "description": "买 OTM call + OTM put。比 straddle 便宜，需更大幅度波动获利。",
+        "description": "Buy OTM call + OTM put. Cheaper than a straddle; needs a larger move to be profitable.",
     },
     "short_strangle": {
         "name": "Short Strangle",
@@ -189,7 +190,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate", "aggressive"],
         "iv_preference": "high",
-        "description": "卖 OTM call + OTM put。比 short straddle 更宽容错区间，风险仍无限。",
+        "description": "Sell OTM call + OTM put. Wider profit zone than a short straddle; still unlimited risk.",
     },
     "collar": {
         "name": "Collar",
@@ -203,10 +204,10 @@ STRATEGIES = {
         "risk_profiles": ["conservative"],
         "iv_preference": "neutral",
         "requires_stock": True,
-        "description": "持股 + 买 put + 卖 call。零成本保护，上行换下行。",
+        "description": "Long stock + buy put + sell call. Near-zero-cost protection; trades upside for downside hedge.",
     },
 
-    # ─── Tier 3: Advanced（三腿+复合）───
+    # ─── Tier 3: Advanced (3-leg + complex) ───
     "iron_condor": {
         "name": "Iron Condor",
         "name_cn": "铁秃鹰",
@@ -220,7 +221,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["conservative", "moderate"],
         "iv_preference": "high",
-        "description": "bull put spread + bear call spread。预期区间震荡，有限风险有限收益。",
+        "description": "Bull put spread + bear call spread. Expects range-bound action; limited risk and limited reward.",
     },
     "iron_butterfly": {
         "name": "Iron Butterfly",
@@ -235,7 +236,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate"],
         "iv_preference": "high",
-        "description": "卖 ATM straddle + 买 OTM strangle 保护。比 iron condor 更窄，收益更高。",
+        "description": "Short ATM straddle + long OTM strangle wings. Narrower than an iron condor with higher max profit.",
     },
     "long_call_butterfly": {
         "name": "Long Call Butterfly",
@@ -249,7 +250,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate"],
         "iv_preference": "neutral",
-        "description": "买低 call + 卖 2x 中 call + 买高 call。预期到期日价格锚定在中间行权价。",
+        "description": "Buy low call + sell 2x middle call + buy high call. Profits if price pins the middle strike at expiry.",
     },
     "jade_lizard": {
         "name": "Jade Lizard",
@@ -263,10 +264,10 @@ STRATEGIES = {
         ],
         "risk_profiles": ["moderate"],
         "iv_preference": "high",
-        "description": "卖 put + bear call spread。上行风险有限的收入策略。",
+        "description": "Short put + bear call spread. Income strategy with no upside risk if structured correctly.",
     },
 
-    # ─── Tier 4: Expert（比率/合成）───
+    # ─── Tier 4: Expert (ratio / synthetics) ───
     "call_ratio_backspread": {
         "name": "Call Ratio Backspread",
         "name_cn": "看涨比率反向价差",
@@ -278,7 +279,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["aggressive"],
         "iv_preference": "low",
-        "description": "卖 1x 低行权价 call + 买 2x 高行权价 call。大幅上涨获利无限。",
+        "description": "Sell 1x lower-strike call + buy 2x higher-strike call. Unlimited profit on a large rally.",
     },
     "put_ratio_backspread": {
         "name": "Put Ratio Backspread",
@@ -291,7 +292,7 @@ STRATEGIES = {
         ],
         "risk_profiles": ["aggressive"],
         "iv_preference": "low",
-        "description": "卖 1x 高行权价 put + 买 2x 低行权价 put。大幅下跌获利无限。",
+        "description": "Sell 1x higher-strike put + buy 2x lower-strike put. Unlimited profit on a large drop.",
     },
     "risk_reversal": {
         "name": "Risk Reversal",
@@ -304,11 +305,11 @@ STRATEGIES = {
         ],
         "risk_profiles": ["aggressive"],
         "iv_preference": "neutral",
-        "description": "买 OTM call + 卖 OTM put。零成本方向性押注，有下行风险。",
+        "description": "Buy OTM call + sell OTM put. Near-zero-cost directional bet with real downside risk.",
     },
 }
 
-# ─── 策略选择矩阵 ───
+# ─── Strategy selection matrix ───
 # outlook → risk_profile → [strategy_keys]
 SELECTION_MATRIX = {
     "bullish": {
@@ -335,7 +336,7 @@ SELECTION_MATRIX = {
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 期权链数据处理
+# Option chain data handling
 # ═══════════════════════════════════════════════════════════════════
 
 def _load_chain(path: str) -> dict:
@@ -387,7 +388,7 @@ def _strike_step(exp_group: dict) -> float:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# IV 环境分析
+# IV environment analysis
 # ═══════════════════════════════════════════════════════════════════
 
 def compute_historical_vol(ib, symbol: str, days: int = 20) -> Optional[float]:
@@ -423,7 +424,7 @@ def assess_iv_environment(chain_data: dict, hist_vol: Optional[float]) -> dict:
             if iv and iv > 0:
                 ivs.append(iv)
     if not ivs:
-        return {"current_iv": None, "hist_vol_20d": hist_vol, "assessment": "数据不足"}
+        return {"current_iv": None, "hist_vol_20d": hist_vol, "assessment": "insufficient data"}
     avg_iv = round(sum(ivs) / len(ivs), 4)
     result = {
         "current_iv": avg_iv,
@@ -432,23 +433,23 @@ def assess_iv_environment(chain_data: dict, hist_vol: Optional[float]) -> dict:
     if hist_vol and hist_vol > 0:
         ratio = avg_iv / hist_vol
         if ratio > 1.3:
-            result["assessment"] = "IV 偏高（期权偏贵）→ 偏卖方策略"
+            result["assessment"] = "IV elevated (options rich) → favor premium-selling strategies"
             result["iv_bias"] = "high"
         elif ratio < 0.8:
-            result["assessment"] = "IV 偏低（期权偏便宜）→ 偏买方策略"
+            result["assessment"] = "IV depressed (options cheap) → favor premium-buying strategies"
             result["iv_bias"] = "low"
         else:
-            result["assessment"] = "IV 适中 → 价差策略为主"
+            result["assessment"] = "IV neutral → favor spread strategies"
             result["iv_bias"] = "neutral"
         result["iv_to_hv_ratio"] = round(ratio, 2)
     else:
-        result["assessment"] = "无历史波动率对比"
+        result["assessment"] = "no historical volatility comparison"
         result["iv_bias"] = "neutral"
     return result
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 策略构建与定价
+# Strategy construction and pricing
 # ═══════════════════════════════════════════════════════════════════
 
 def _mid_price(opt: dict) -> Optional[float]:
@@ -621,7 +622,7 @@ def _calc_risk_reward(strategy_key: str, legs, underlying_price: float,
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 主流程
+# Main flow
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze(
@@ -667,21 +668,21 @@ def analyze(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="IBKR Options Strategy Analyzer")
-    parser.add_argument("symbol", help="标的代码 (e.g. SPY, AAPL)")
+    parser.add_argument("symbol", help="underlying ticker (e.g. SPY, AAPL)")
     parser.add_argument("--outlook", required=True,
                         choices=["bullish", "bearish", "neutral", "volatile"],
-                        help="市场观点")
+                        help="market outlook")
     parser.add_argument("--risk-profile", default="moderate",
                         choices=["conservative", "moderate", "aggressive"],
-                        help="风险偏好 (default: moderate)")
-    parser.add_argument("--chain-file", help="期权链 JSON 文件（跳过实时获取）")
-    parser.add_argument("--portfolio-file", help="持仓 JSON 文件")
+                        help="risk profile (default: moderate)")
+    parser.add_argument("--chain-file", help="option chain JSON file (skip live fetch)")
+    parser.add_argument("--portfolio-file", help="portfolio JSON file")
     parser.add_argument("--iv-context", action="store_true",
-                        help="计算 IV 环境（20 日历史波动率 vs 当前 IV）")
-    parser.add_argument("--output", help="输出文件路径（默认 stdout）")
+                        help="compute IV environment (20-day historical vol vs current IV)")
+    parser.add_argument("--output", help="output file path (default stdout)")
     args = parser.parse_args()
 
-    log(f"🔄 分析 {args.symbol} 期权策略 "
+    log(f"🔄 Analyzing {args.symbol} option strategies "
         f"(outlook={args.outlook}, risk={args.risk_profile})...")
 
     chain_data = None
@@ -689,7 +690,7 @@ def main() -> int:
     portfolio_data = None
 
     if args.chain_file:
-        log(f"  从文件加载期权链: {args.chain_file}")
+        log(f"  loading chain from file: {args.chain_file}")
         chain_data = _load_chain(args.chain_file)
 
     if args.portfolio_file:
@@ -702,15 +703,15 @@ def main() -> int:
         try:
             with ib_connect(client_id_offset=CLIENT_ID_OFFSET) as ib:
                 if chain_data is None:
-                    log("  实时获取期权链...")
+                    log("  fetching live option chain...")
                     chain_data = _fetch_chain_inline(ib, args.symbol)
                 if args.iv_context:
-                    log("  计算历史波动率...")
+                    log("  computing historical volatility...")
                     hist_vol = compute_historical_vol(ib, args.symbol)
                     iv_ctx = assess_iv_environment(chain_data, hist_vol)
-                    log(f"  IV 环境: {iv_ctx.get('assessment', 'N/A')}")
+                    log(f"  IV environment: {iv_ctx.get('assessment', 'N/A')}")
         except Exception as e:
-            log(f"❌ 连接失败: {e}")
+            log(f"❌ Connection failed: {e}")
             return 1
     else:
         if args.iv_context:
@@ -725,11 +726,11 @@ def main() -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, args.output)
-        log(f"📁 已保存到 {args.output}")
+        log(f"📁 Saved to {args.output}")
     else:
         print(json_str)
 
-    log(f"✅ 完成: {len(result['recommendations'])} 个策略推荐")
+    log(f"✅ Done: {len(result['recommendations'])} strategy recommendations")
     return 0
 
 

@@ -1,9 +1,9 @@
 """
-技术指标 — 用 250 日日线计算 RSI(14)/MA(20,50,200)/Bollinger(20,2)/ATR(14)。
+Technical indicators — computes RSI(14)/MA(20,50,200)/Bollinger(20,2)/ATR(14) from 250 daily bars.
 
-依赖 numpy，无 talib 等额外依赖。
+Depends on numpy; no talib or other heavy deps.
 
-用法：
+Usage:
   python technical_indicators.py AAPL
   python technical_indicators.py SPY --indicators rsi,ma
   python technical_indicators.py NVDA --output /tmp/nvda_ta.json
@@ -144,12 +144,12 @@ def fetch_indicators(ib, symbol: str, wanted: set[str]) -> dict:
         formatDate=1,
     )
     if not bars:
-        raise RuntimeError(f"未获得 {symbol} 历史数据")
+        raise RuntimeError(f"No historical data returned for {symbol}")
 
     highs = np.array([b.high for b in bars], dtype=float)
     lows = np.array([b.low for b in bars], dtype=float)
     closes = np.array([b.close for b in bars], dtype=float)
-    log(f"  {symbol}: {len(closes)} 根日线")
+    log(f"  {symbol}: {len(closes)} daily bars")
 
     indicators = compute_indicators(highs, lows, closes, wanted)
     current_price = round(float(closes[-1]), 4)
@@ -164,22 +164,22 @@ def fetch_indicators(ib, symbol: str, wanted: set[str]) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="技术指标")
-    parser.add_argument("symbol", help="标的代码")
+    parser = argparse.ArgumentParser(description="Technical indicators")
+    parser.add_argument("symbol", help="ticker symbol")
     parser.add_argument("--indicators", default="rsi,ma,bb,atr",
-                        help="逗号分隔 (rsi,ma,bb,atr)")
-    parser.add_argument("--output", help="输出文件路径（默认 stdout）")
+                        help="comma-separated (rsi,ma,bb,atr)")
+    parser.add_argument("--output", help="output file path (default stdout)")
     args = parser.parse_args()
 
     wanted = {s.strip().lower() for s in args.indicators.split(",") if s.strip()}
 
-    log(f"🔄 {args.symbol} 技术指标 ({','.join(sorted(wanted))}) ...")
+    log(f"🔄 {args.symbol} technical indicators ({','.join(sorted(wanted))}) ...")
 
     try:
         with ib_connect(client_id_offset=CLIENT_ID_OFFSET) as ib:
             result = fetch_indicators(ib, args.symbol, wanted)
     except Exception as e:
-        log(f"❌ 失败: {e}")
+        log(f"❌ Failed: {e}")
         return 1
 
     result["generated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -190,11 +190,11 @@ def main() -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, args.output)
-        log(f"📁 已保存到 {args.output}")
+        log(f"📁 Saved to {args.output}")
     else:
         print(json_str)
 
-    log(f"✅ 完成: {result['summary']}")
+    log(f"✅ Done: {result['summary']}")
     return 0
 
 

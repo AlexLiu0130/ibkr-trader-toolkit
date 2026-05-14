@@ -175,7 +175,7 @@ Effective cost basis = 100 - 1.50 - 0.80 - 1.20 = 96.50
 Final P&L per share = 105 (call away) - 96.50 = +8.50  ≈ +8.8%
 ```
 
-`wheel_tracker.py --summary` does this math automatically per cycle.
+`wheel_tracker.py summary` does this math automatically per cycle.
 
 ---
 
@@ -198,15 +198,15 @@ The script reads `~/.ibkr_wheel_journal.json` (your manual entries) and cross-re
 **Add a new wheel entry:**
 
 ```bash
-python scripts/wheel_tracker.py --add-entry SYM STRIKE EXPIRY PREMIUM
+python scripts/wheel_tracker.py add-entry SYM STRIKE EXPIRY PREMIUM
 # e.g.
-python scripts/wheel_tracker.py --add-entry MU 100 2026-06-19 1.45
+python scripts/wheel_tracker.py add-entry MU 100 2026-06-19 1.45
 ```
 
 **Get a summary:**
 
 ```bash
-python scripts/wheel_tracker.py --summary
+python scripts/wheel_tracker.py summary
 ```
 
 Output (one row per active wheel):

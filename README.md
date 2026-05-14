@@ -6,6 +6,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![IBKR](https://img.shields.io/badge/broker-Interactive%20Brokers-red.svg)](https://www.interactivebrokers.com/)
 
+> [中文版 README](README.zh-CN.md)
+
 <!-- screenshot: hero -->
 
 ---
@@ -17,6 +19,7 @@
 - [IBKR Market Data Subscriptions](#-ibkr-market-data-subscriptions)
 - [Quick Start](#-quick-start)
 - [Operations Guide (Second User, Auto-Restart)](#-operations-guide)
+- [Trading Mode (Optional)](#-trading-mode-optional)
 - [Claude Code Integration](#-claude-code-integration)
 - [Command Reference](#-command-reference)
 - [Configuration](#-configuration)
@@ -30,7 +33,7 @@
 
 ## ✨ Features
 
-13 focused Python scripts. Every script outputs JSON so Claude (or any other agent) can reason about the data; the toolkit itself never gives buy/sell signals.
+17 focused Python scripts. Read-only scripts output JSON so Claude (or any other agent) can reason about the data. Only `trade.py` can place orders, and only when both safety gates are explicitly opened.
 
 **Data & quotes**
 - `market_quote.py` — Real-time bid/ask/last/IV/volume for stocks, ETFs, options.
@@ -45,12 +48,18 @@
 **Portfolio & P&L**
 - `portfolio_positions.py` — Live positions with per-leg and portfolio-level Greeks.
 - `pnl_analytics.py` — Realized P&L, win rate, best/worst trades (from `ib.executions` + optional Flex CSV).
+- `flex_import.py` — Parse IBKR Flex Statement CSV/XML history into normalized JSON.
+- `cost_basis.py` — **Premium-adjusted** effective cost basis (the wheel-trader number IBKR doesn't compute).
+- `concentration.py` — HHI, sector mix, top-N concentration risk metrics.
 - `risk_simulator.py` — "What if I add this trade?" Greeks delta preview before execution.
 
 **Strategy automation**
 - `wheel_tracker.py` — Track wheel cycles (short put → assignment → covered call → called away) with cumulative premium and annualized yield.
 - `earnings_calendar.py` — Next earnings date for portfolio symbols, flags options positions expiring across earnings.
 - `alerts_monitor.py` — YAML-driven threshold alerts (delta, IV percentile, DTE, P&L) for cron use.
+
+**Trade execution (opt-in)**
+- `trade.py` — Stocks, single-leg options, multi-leg combos, futures, FX. Dual-gate safety (`IBKR_TRADING_ENABLED=1` + `--confirm-trade`). See [Trading Mode](#-trading-mode-optional).
 
 **Connection layer**
 - `ib_client.py` — Shared IB Gateway connection with readonly safety, per-script clientId offsets, and historical-data pacing.
@@ -152,7 +161,7 @@ Inside IB Gateway:
 3. Check **Read-Only API** (recommended — this toolkit is read-only by design)
 4. **Socket port**: `4001` (live) or `4002` (paper). Match this to `IBKR_PORT` in your `.env`.
 5. **Trusted IPs**: add `127.0.0.1`
-6. Uncheck **Allow connections from localhost only** is NOT needed; leaving it checked is safer.
+6. Leave **Allow connections from localhost only** checked — it's safer and the toolkit doesn't need it disabled.
 7. Click **OK** and restart Gateway.
 
 <!-- screenshot: gateway-api-settings -->
@@ -182,7 +191,7 @@ Minimum fields to review (defaults usually work):
 IBKR_HOST=127.0.0.1
 IBKR_PORT=4001                  # 4002 if paper, 7497 if TWS paper
 IBKR_CLIENT_ID_BASE=11
-IBKR_MARKET_DATA_TYPE=1         # 3 if you have no real-time subscription
+IBKR_MARKET_DATA_TYPE=3         # default 3; auto-upgrades to realtime when subscribed
 ```
 
 ### 5. First call
@@ -341,6 +350,52 @@ util.logToConsole()
 
 ---
 
+## 💱 Trading Mode (Optional)
+
+The 13 core scripts in this toolkit are **read-only by design** — they query
+data and compute Greeks, but never call `ib.placeOrder()`. If you want to
+actually place orders, opt in by using `scripts/trade.py`, the **one** script
+in the repo that sends orders.
+
+`trade.py` supports stocks, single-leg options, multi-leg option combos,
+futures, and FX. Every order command requires **two safety gates**:
+
+1. `IBKR_TRADING_ENABLED=1` env var (set per shell)
+2. `--confirm-trade` CLI flag (set per invocation)
+
+Without both, the script runs in dry-run mode — it qualifies the contract,
+runs pre-flight checks (Gateway readonly toggle, buying power, notional &
+quantity guardrails, blocklist), and prints exactly what it *would* have sent,
+without calling `placeOrder()`.
+
+**Quick example (dry-run):**
+
+```bash
+python scripts/trade.py option MU 2026-06-12 720 P 2 \
+    --action SELL --order-type LMT --limit-price 14.50
+# → mode: "dry_run", result: "DRY_RUN_NO_ORDER_PLACED"
+```
+
+**Quick example (live, paper account first!):**
+
+```bash
+export IBKR_PORT=4002          # paper
+export IBKR_TRADING_ENABLED=1  # Gate 1
+python scripts/trade.py option MU 2026-06-12 720 P 2 \
+    --action SELL --order-type LMT --limit-price 14.50 \
+    --confirm-trade             # Gate 2
+```
+
+Built-in guardrails reject notionals > $100k, stock qty > 10,000, option qty
+> 1,000, and any symbol in `IBKR_TRADING_BLOCKLIST` — override with
+`--allow-large`.
+
+⚠️ **Test on paper (`IBKR_PORT=4002`) before pointing at live.** Full docs,
+all subcommands, cancel/list-orders workflow, and bilingual reference in
+[`references/trading.md`](references/trading.md).
+
+---
+
 ## 🤖 Claude Code Integration
 
 This repo ships a `SKILL.md` so Claude Code can use it directly. Two ways to install:
@@ -379,8 +434,12 @@ All scripts read `.env` automatically and accept `--help`. Every script prints J
 | `earnings_calendar.py` | Next earnings + DTE | `python scripts/earnings_calendar.py AAPL ARM MU --days 30` |
 | `risk_simulator.py` | Pre-trade Greeks preview | `python scripts/risk_simulator.py --add "AAPL 200 2026-06-26 P SELL 2"` |
 | `technical_indicators.py` | RSI / MA / BB / ATR | `python scripts/technical_indicators.py NVDA --indicators rsi,ma,bb` |
-| `wheel_tracker.py` | Wheel cycle journal | `python scripts/wheel_tracker.py --summary` |
+| `wheel_tracker.py` | Wheel cycle journal | `python scripts/wheel_tracker.py summary` |
 | `alerts_monitor.py` | Threshold alerts | `python scripts/alerts_monitor.py --config ~/.ibkr_alerts.yaml` |
+| `cost_basis.py` | Premium-adjusted cost basis (wheel) | `python scripts/cost_basis.py MU --portfolio-file /tmp/portfolio.json` |
+| `concentration.py` | HHI / sector / top-N concentration | `python scripts/concentration.py` |
+| `flex_import.py` | Parse IBKR Flex CSV/XML history | `python scripts/flex_import.py --flex-dir ~/.ibkr_flex --since 2026-01-01` |
+| `trade.py` | **Place orders (opt-in)** — see [Trading Mode](#-trading-mode-optional) | `python scripts/trade.py stock AAPL 1` (dry-run by default) |
 | `contracts.py` | (library) contract resolver | imported by other scripts |
 | `ib_client.py` | (library) shared connection | imported by other scripts |
 
@@ -420,7 +479,7 @@ All configuration lives in `.env` (copied from `.env.example`).
 | `IBKR_HOST` | `127.0.0.1` | Gateway host. Almost always localhost. |
 | `IBKR_PORT` | `4001` | `4001` Gateway live · `4002` Gateway paper · `7496` TWS live · `7497` TWS paper |
 | `IBKR_CLIENT_ID_BASE` | `11` | Scripts add an offset (7–16); the resulting clientId must be unique across all your apps. |
-| `IBKR_MARKET_DATA_TYPE` | `1` | `1` realtime · `2` frozen · `3` delayed (free) · `4` delayed-frozen |
+| `IBKR_MARKET_DATA_TYPE` | `3` | `1` realtime · `2` frozen · `3` delayed (default — auto-upgrades to realtime when subscribed) · `4` delayed-frozen |
 | `FINNHUB_API_KEY` | *(unset)* | Optional. Falls back when `yahoo-earnings-calendar` is unavailable. Free at <https://finnhub.io>. |
 | `IBKR_FLEX_TOKEN` | *(unset)* | Optional. IBKR Flex Web Service token for full historical P&L (beyond the ~2-day execution window). |
 | `IBKR_FLEX_QUERY_ID` | *(unset)* | Optional. Flex Query ID. |

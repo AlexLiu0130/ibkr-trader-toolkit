@@ -1,9 +1,9 @@
 """
-账户持仓读取 — 列出所有持仓，期权仓位带 Greeks，计算组合级 net Greeks。
+Account positions reader — lists all positions, with Greeks on option legs, and computes portfolio-level net Greeks.
 
-输出 JSON：positions[...], portfolio_greeks{net_delta, net_gamma, net_vega, net_theta}
+Output JSON: positions[...], portfolio_greeks{net_delta, net_gamma, net_vega, net_theta}
 
-用法：
+Usage:
   python portfolio_positions.py
   python portfolio_positions.py --output /tmp/portfolio.json
 """
@@ -33,7 +33,7 @@ def fetch_positions(ib) -> dict:
     ib.reqPositions()
     time.sleep(1)
     positions = ib.positions()
-    log(f"  共 {len(positions)} 个持仓")
+    log(f"  {len(positions)} positions total")
 
     portfolio_items = ib.portfolio()
     pnl_map = {}
@@ -53,7 +53,7 @@ def fetch_positions(ib) -> dict:
 
     greeks_map = {}
     if option_contracts:
-        log(f"  获取 {len(option_contracts)} 个期权合约的 Greeks...")
+        log(f"  fetching Greeks for {len(option_contracts)} option contracts...")
         for i in range(0, len(option_contracts), BATCH_SIZE):
             batch = option_contracts[i:i + BATCH_SIZE]
             qualified = ib.qualifyContracts(*batch)
@@ -140,16 +140,16 @@ def fetch_positions(ib) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="IBKR Portfolio Positions Reader")
-    parser.add_argument("--output", help="输出文件路径（默认 stdout）")
+    parser.add_argument("--output", help="output file path (default stdout)")
     args = parser.parse_args()
 
-    log("🔄 读取账户持仓...")
+    log("🔄 Reading account positions...")
 
     try:
         with ib_connect(client_id_offset=CLIENT_ID_OFFSET) as ib:
             result = fetch_positions(ib)
     except Exception as e:
-        log(f"❌ 失败: {e}")
+        log(f"❌ Failed: {e}")
         return 1
 
     json_str = json.dumps(result, ensure_ascii=False, indent=2)
@@ -158,13 +158,13 @@ def main() -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, args.output)
-        log(f"📁 已保存到 {args.output}")
+        log(f"📁 Saved to {args.output}")
     else:
         print(json_str)
 
     n_opt = sum(1 for p in result["positions"] if p["sec_type"] == "OPT")
     n_stk = sum(1 for p in result["positions"] if p["sec_type"] == "STK")
-    log(f"✅ 完成: {n_stk} 股票 + {n_opt} 期权, "
+    log(f"✅ Done: {n_stk} stocks + {n_opt} options, "
         f"net Δ={result['portfolio_greeks']['net_delta']}")
     return 0
 

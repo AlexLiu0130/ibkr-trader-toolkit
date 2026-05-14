@@ -24,6 +24,9 @@ ClientId offsets (script-to-offset mapping):
   technical_indicators   offset 14
   wheel_tracker.py       offset 15
   alerts_monitor.py      offset 16
+  cost_basis.py          offset 17
+  concentration.py       offset 18
+  (flex_import.py has no IBKR connection)
 """
 
 import os

@@ -1,14 +1,14 @@
 """
-已实现盈亏分析 — 汇总当日 session 的成交记录，叠加可选的 Flex Statement CSV。
+Realized P&L analytics — aggregates the current session's fills, optionally combined with Flex Statement CSVs.
 
-数据源：
-  1. ib.reqExecutions() + ib.fills() — 当前 session 成交（IBKR 限制约 2 天）
-  2. ~/.ibkr_flex/*.csv — 用户从 Account Management 导出的 Flex Statement（可选）
+Data sources:
+  1. ib.reqExecutions() + ib.fills() — current session fills (IBKR limit ~2 days)
+  2. ~/.ibkr_flex/*.csv — Flex Statements the user exported from Account Management (optional)
 
-聚合维度：symbol / direction (long|short) / right (call|put)
-统计：胜率、平均盈/亏、总已实现 P&L、最佳/最差单笔
+Aggregation dimensions: symbol / direction (long|short) / right (call|put)
+Statistics: win rate, average win/loss, total realized P&L, best/worst single trade
 
-用法：
+Usage:
   python pnl_analytics.py
   python pnl_analytics.py --by right
   python pnl_analytics.py --days 60 --flex-dir ~/.ibkr_flex --output /tmp/pnl.json
@@ -30,7 +30,7 @@ CLIENT_ID_OFFSET = 12
 
 
 def _direction(side: str, qty: float) -> str:
-    """根据 side (BOT/SLD) 判断方向。"""
+    """Infer direction from side (BOT/SLD)."""
     s = (side or "").upper()
     if s in ("BOT", "BUY"):
         return "long"
@@ -50,7 +50,7 @@ def _trade_key(group_by: str, trade: dict) -> str:
 
 
 def fetch_session_trades(ib, since_date: date) -> list[dict]:
-    """从 IB Gateway session 中拉取 fills。"""
+    """Pull fills from the current IB Gateway session."""
     ib.reqExecutions()
     ib.sleep(1)
     fills = ib.fills()
@@ -95,7 +95,7 @@ def fetch_session_trades(ib, since_date: date) -> list[dict]:
 
 
 def fetch_flex_trades(flex_dir: Path, since_date: date) -> list[dict]:
-    """读取 ~/.ibkr_flex/*.csv 中的成交。Flex 字段名因模板而异，做容错。"""
+    """Read fills from ~/.ibkr_flex/*.csv. Flex field names vary by template; be tolerant."""
     if not flex_dir.exists():
         return []
 
@@ -147,8 +147,8 @@ def fetch_flex_trades(flex_dir: Path, since_date: date) -> list[dict]:
                         "source": f"flex:{csv_path.name}",
                     })
         except Exception as e:
-            log(f"  跳过 {csv_path.name}: {e}")
-    log(f"  Flex 文件: {len(trades)} 笔")
+            log(f"  skipped {csv_path.name}: {e}")
+    log(f"  Flex files: {len(trades)} trades")
     return trades
 
 
@@ -174,31 +174,31 @@ def aggregate(trades: list[dict], group_by: str) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="已实现盈亏分析")
-    parser.add_argument("--days", type=int, default=30, help="回溯天数 (default 30)")
+    parser = argparse.ArgumentParser(description="Realized P&L analytics")
+    parser.add_argument("--days", type=int, default=30, help="lookback days (default 30)")
     parser.add_argument("--by", choices=["symbol", "right", "expiration"],
-                        default="symbol", help="聚合维度 (default symbol)")
+                        default="symbol", help="aggregation dimension (default symbol)")
     parser.add_argument("--flex-dir", default="~/.ibkr_flex",
-                        help="Flex Statement CSV 目录 (default ~/.ibkr_flex)")
-    parser.add_argument("--output", help="输出文件路径（默认 stdout）")
+                        help="Flex Statement CSV directory (default ~/.ibkr_flex)")
+    parser.add_argument("--output", help="output file path (default stdout)")
     args = parser.parse_args()
 
     since_date = date.today() - timedelta(days=args.days)
     flex_dir = Path(os.path.expanduser(args.flex_dir))
 
-    log(f"🔄 PnL 分析: 自 {since_date.isoformat()} 起 ...")
+    log(f"🔄 PnL analytics: since {since_date.isoformat()} ...")
 
     trades: list[dict] = []
     try:
         with ib_connect(client_id_offset=CLIENT_ID_OFFSET) as ib:
             trades.extend(fetch_session_trades(ib, since_date))
     except Exception as e:
-        log(f"  ⚠️  Session fills 获取失败: {e}")
+        log(f"  ⚠️  Session fills fetch failed: {e}")
 
     trades.extend(fetch_flex_trades(flex_dir, since_date))
 
     if not trades:
-        log("  ⚠️  没有可用成交数据 (session 为空且无 Flex 文件)")
+        log("  ⚠️  No fills available (empty session and no Flex files)")
 
     realized_only = [t["realized_pnl"] for t in trades if t["realized_pnl"]]
     best = max(trades, key=lambda t: t["realized_pnl"]) if realized_only else None
@@ -228,11 +228,11 @@ def main() -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, args.output)
-        log(f"📁 已保存到 {args.output}")
+        log(f"📁 Saved to {args.output}")
     else:
         print(json_str)
 
-    log(f"✅ 完成: {len(trades)} 笔, total PnL={result['total_realized_pnl']}")
+    log(f"✅ Done: {len(trades)} trades, total PnL={result['total_realized_pnl']}")
     return 0
 
 

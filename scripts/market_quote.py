@@ -8,7 +8,7 @@ Usage:
   python market_quote.py 0700.HK
   python market_quote.py ES              # continuous futures contract
 
-输出 JSON schema（stdout）：
+Output JSON schema (stdout):
   {
     "symbol":   "AAPL",
     "kind":     "stock" | "index" | "fx" | "future",

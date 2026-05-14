@@ -1,10 +1,10 @@
 """
-期权链数据获取 — 获取标的 ATM 附近的期权链，含 Greeks。
+Option chain fetcher — fetches the option chain near the underlying's ATM, with Greeks.
 
-输出 JSON：symbol, underlying_price, chain[{expiration, dte, calls[...], puts[...]}]
-每个 call/put: strike, bid, ask, last, volume, open_interest, iv, delta, gamma, vega, theta
+Output JSON: symbol, underlying_price, chain[{expiration, dte, calls[...], puts[...]}]
+Each call/put: strike, bid, ask, last, volume, open_interest, iv, delta, gamma, vega, theta
 
-用法：
+Usage:
   python options_chain.py SPY
   python options_chain.py AAPL --strikes 15 --dte-min 14 --dte-max 90
   python options_chain.py SPY --max-expirations 5 --output /tmp/spy_chain.json
@@ -80,7 +80,7 @@ def _batch_qualify_and_tick(ib, contracts):
         all_valid.extend(valid)
         if i + BATCH_SIZE < len(contracts):
             time.sleep(0.5)
-    log(f"  qualify 完成: {len(all_valid)}/{len(contracts)} 有效")
+    log(f"  qualify done: {len(all_valid)}/{len(contracts)} valid")
     if not all_valid:
         return {}
 
@@ -151,44 +151,44 @@ def fetch_chain(
 ) -> dict:
     contract = resolve(symbol)
     q = qualify(ib, contract)
-    log(f"  标的 conId={q.conId}, secType={q.secType}")
+    log(f"  underlying conId={q.conId}, secType={q.secType}")
 
     tickers = ib.reqTickers(q)
     ib.sleep(2)
     t = tickers[0] if tickers else None
     if t is None:
-        raise RuntimeError(f"无法获取 {symbol} 当前价格")
+        raise RuntimeError(f"Could not fetch current price for {symbol}")
     underlying_price = None
     for val in (t.last, t.close, t.midpoint()):
         if val is not None and not math.isnan(val) and val > 0:
             underlying_price = round(val, 2)
             break
     if underlying_price is None:
-        raise RuntimeError(f"无法获取 {symbol} 当前价格")
-    log(f"  标的价格: {underlying_price}")
+        raise RuntimeError(f"Could not fetch current price for {symbol}")
+    log(f"  underlying price: {underlying_price}")
 
     chains = ib.reqSecDefOptParams(
         q.symbol, "", q.secType, q.conId,
     )
     if not chains:
-        raise RuntimeError(f"reqSecDefOptParams 返回空: {symbol}")
+        raise RuntimeError(f"reqSecDefOptParams returned empty: {symbol}")
 
     chain = max(chains, key=lambda c: len(c.strikes))
-    log(f"  期权链: exchange={chain.exchange}, "
-        f"{len(chain.expirations)} 到期日, {len(chain.strikes)} 行权价")
+    log(f"  option chain: exchange={chain.exchange}, "
+        f"{len(chain.expirations)} expirations, {len(chain.strikes)} strikes")
 
     expirations = _pick_expirations(
         list(chain.expirations), dte_min, dte_max, max_expirations,
     )
     if not expirations:
         raise RuntimeError(
-            f"DTE [{dte_min}, {dte_max}] 内无到期日 "
-            f"(可用: {sorted(chain.expirations)[:5]}...)"
+            f"No expirations within DTE [{dte_min}, {dte_max}] "
+            f"(available: {sorted(chain.expirations)[:5]}...)"
         )
-    log(f"  选中到期日: {expirations}")
+    log(f"  selected expirations: {expirations}")
 
     strikes = _pick_strikes(list(chain.strikes), underlying_price, num_strikes)
-    log(f"  选中行权价: {len(strikes)} 个 "
+    log(f"  selected strikes: {len(strikes)} "
         f"({strikes[0]:.1f} ~ {strikes[-1]:.1f})")
 
     all_contracts = []
@@ -200,10 +200,10 @@ def fetch_chain(
                     "SMART", currency=q.currency,
                     tradingClass=chain.tradingClass,
                 ))
-    log(f"  构造 {len(all_contracts)} 个期权合约，批量获取数据...")
+    log(f"  built {len(all_contracts)} option contracts, fetching in batches...")
 
     tick_data = _batch_qualify_and_tick(ib, all_contracts)
-    log(f"  获取到 {len(tick_data)} 个合约的数据")
+    log(f"  got data for {len(tick_data)} contracts")
 
     today = date.today()
     chain_output = []
@@ -237,19 +237,19 @@ def fetch_chain(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="IBKR Options Chain Fetcher")
-    parser.add_argument("symbol", help="标的代码 (e.g. SPY, AAPL, QQQ)")
+    parser.add_argument("symbol", help="underlying ticker (e.g. SPY, AAPL, QQQ)")
     parser.add_argument("--strikes", type=int, default=10,
-                        help="ATM 上下各取 N 个行权价 (default: 10)")
+                        help="number of strikes on each side of ATM (default: 10)")
     parser.add_argument("--dte-min", type=int, default=7,
-                        help="最短到期天数 (default: 7)")
+                        help="minimum days to expiration (default: 7)")
     parser.add_argument("--dte-max", type=int, default=60,
-                        help="最长到期天数 (default: 60)")
+                        help="maximum days to expiration (default: 60)")
     parser.add_argument("--max-expirations", type=int, default=3,
-                        help="最多选几个到期日 (default: 3)")
-    parser.add_argument("--output", help="输出文件路径（默认 stdout）")
+                        help="maximum number of expirations to pick (default: 3)")
+    parser.add_argument("--output", help="output file path (default stdout)")
     args = parser.parse_args()
 
-    log(f"🔄 获取 {args.symbol} 期权链...")
+    log(f"🔄 Fetching {args.symbol} option chain...")
 
     try:
         with ib_connect(client_id_offset=CLIENT_ID_OFFSET) as ib:
@@ -262,7 +262,7 @@ def main() -> int:
                 max_expirations=args.max_expirations,
             )
     except Exception as e:
-        log(f"❌ 失败: {e}")
+        log(f"❌ Failed: {e}")
         return 1
 
     json_str = json.dumps(result, ensure_ascii=False, indent=2)
@@ -271,12 +271,12 @@ def main() -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, args.output)
-        log(f"📁 已保存到 {args.output}")
+        log(f"📁 Saved to {args.output}")
     else:
         print(json_str)
 
     total_opts = sum(len(e["calls"]) + len(e["puts"]) for e in result["chain"])
-    log(f"✅ 完成: {len(result['chain'])} 个到期日, {total_opts} 个合约")
+    log(f"✅ Done: {len(result['chain'])} expirations, {total_opts} contracts")
     return 0
 
 

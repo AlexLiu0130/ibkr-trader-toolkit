@@ -1,17 +1,17 @@
 """
-Wheel 策略跟踪器 — 维护 ~/.ibkr_wheel_journal.json，汇总累计权利金和年化收益。
+Wheel-strategy tracker — maintains ~/.ibkr_wheel_journal.json and reports cumulative premium and annualized yield.
 
-子命令：
-  add-entry SYMBOL STRIKE EXPIRATION PREMIUM   记录新的 short put 入场
-  summary                                       读持仓 + journal，按 symbol 汇总状态
+Sub-commands:
+  add-entry SYMBOL STRIKE EXPIRATION PREMIUM   record a new short-put entry
+  summary                                       read positions + journal, group by symbol
 
-阶段定义：
-  short_put     有持仓 short put，未被指派
-  assigned      持有正股，等待写 covered call
-  covered_call  已写 short call (covered)
-  called_away   股票被 call away，wheel 完成一轮
+Stage definitions:
+  short_put     short put open, not yet assigned
+  assigned      holds the stock, waiting to write a covered call
+  covered_call  short call written against the stock (covered)
+  called_away   stock called away, wheel cycle complete
 
-用法：
+Usage:
   python wheel_tracker.py add-entry AAPL 200 2026-06-26 3.50
   python wheel_tracker.py summary
   python wheel_tracker.py summary --output /tmp/wheel.json
@@ -66,7 +66,7 @@ def add_entry(symbol: str, strike: float, expiration: str, premium: float) -> di
 
 
 def _current_stage(symbol: str, positions: list[dict]) -> str:
-    """根据 IBKR 持仓推断 wheel 阶段。"""
+    """Infer wheel stage from IBKR positions."""
     sym_pos = [p for p in positions if p.get("symbol") == symbol]
     short_puts = [p for p in sym_pos if p.get("sec_type") == "OPT"
                   and p.get("right") == "P" and (p.get("position") or 0) < 0]
@@ -103,7 +103,7 @@ def summary(ib) -> dict:
     for e in entries:
         by_sym.setdefault(e["symbol"], []).append(e)
 
-    # 也加入只有持仓没有 journal 的 symbol
+    # also include symbols that appear in positions but have no journal entry
     sym_with_pos = {p["symbol"] for p in positions
                     if p.get("sec_type") in ("OPT", "STK")}
     for s in sym_with_pos:
@@ -117,8 +117,13 @@ def summary(ib) -> dict:
                 first_date = min(
                     datetime.strptime(e["date"], "%Y-%m-%d").date() for e in sym_entries
                 )
-                avg_strike = sum(e["strike"] for e in sym_entries) / len(sym_entries)
-                total_capital = avg_strike * 100 * len(sym_entries)
+                # Capital reflects the current open leg (rolls reuse capital,
+                # they don't multiply it). Use the latest entry's strike × 100.
+                latest_entry = max(
+                    sym_entries,
+                    key=lambda e: datetime.strptime(e["date"], "%Y-%m-%d").date(),
+                )
+                total_capital = latest_entry["strike"] * 100
                 ann_ret = _annualized_return(total_premium, total_capital, first_date)
             except Exception:
                 ann_ret = None
@@ -147,24 +152,24 @@ def _write_output(result: dict, output: str | None) -> None:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, output)
-        log(f"📁 已保存到 {output}")
+        log(f"📁 Saved to {output}")
     else:
         print(json_str)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Wheel 策略跟踪器")
+    parser = argparse.ArgumentParser(description="Wheel-strategy tracker")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_add = sub.add_parser("add-entry", help="记录新的 short put")
+    p_add = sub.add_parser("add-entry", help="record a new short put")
     p_add.add_argument("symbol")
     p_add.add_argument("strike", type=float)
-    p_add.add_argument("expiration", help="YYYY-MM-DD 或 YYYYMMDD")
+    p_add.add_argument("expiration", help="YYYY-MM-DD or YYYYMMDD")
     p_add.add_argument("premium", type=float)
-    p_add.add_argument("--output", help="输出文件路径（默认 stdout）")
+    p_add.add_argument("--output", help="output file path (default stdout)")
 
-    p_sum = sub.add_parser("summary", help="汇总当前 wheels")
-    p_sum.add_argument("--output", help="输出文件路径（默认 stdout）")
+    p_sum = sub.add_parser("summary", help="summarize current wheels")
+    p_sum.add_argument("--output", help="output file path (default stdout)")
 
     args = parser.parse_args()
 
@@ -172,7 +177,7 @@ def main() -> int:
         entry = add_entry(args.symbol, args.strike, args.expiration, args.premium)
         result = {"added": entry, "journal_path": str(JOURNAL_PATH)}
         _write_output(result, args.output)
-        log(f"✅ 已记录 {entry['symbol']} short put @ {entry['strike']}")
+        log(f"✅ Recorded {entry['symbol']} short put @ {entry['strike']}")
         return 0
 
     if args.cmd == "summary":
@@ -181,10 +186,10 @@ def main() -> int:
             with ib_connect(client_id_offset=CLIENT_ID_OFFSET) as ib:
                 result = summary(ib)
         except Exception as e:
-            log(f"❌ 失败: {e}")
+            log(f"❌ Failed: {e}")
             return 1
         _write_output(result, args.output)
-        log(f"✅ 完成: {len(result['wheels'])} 个 wheel")
+        log(f"✅ Done: {len(result['wheels'])} wheel(s)")
         return 0
 
     return 1

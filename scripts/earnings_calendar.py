@@ -1,11 +1,11 @@
 """
-财报日历查询 — 拉取指定标的的下一次财报日期，可选与持仓合并标记 at-risk 期权。
+Earnings calendar lookup — fetches the next earnings date for given symbols, optionally merging with portfolio data to flag at-risk option positions.
 
-数据源（按优先级）：
-  - Nasdaq /api/calendar/earnings（公开，无需 key，按日期拉）
-  - Finnhub /calendar/earnings（备，若 FINNHUB_API_KEY 已设置）
+Data sources (by priority):
+  - Nasdaq /api/calendar/earnings (public, no API key, queried by date)
+  - Finnhub /calendar/earnings (fallback, if FINNHUB_API_KEY is set)
 
-用法：
+Usage:
   python earnings_calendar.py AAPL MSFT NVDA
   python earnings_calendar.py AAPL --days 14
   python earnings_calendar.py --portfolio-file /tmp/portfolio.json --output /tmp/earn.json
@@ -47,7 +47,7 @@ def _parse_date(val) -> date | None:
 
 
 def fetch_nasdaq_range(days: int) -> dict[str, date]:
-    """拉取未来 days 天所有 earnings，返回 {symbol: earnings_date} 字典。"""
+    """Fetch all earnings in the next N days; returns {symbol: earnings_date}."""
     today = date.today()
     result: dict[str, date] = {}
     for offset in range(days + 1):
@@ -108,7 +108,7 @@ def fetch_finnhub_one(symbol: str, days: int) -> dict | None:
 
 
 def at_risk_positions(portfolio: dict, earnings: list[dict]) -> list[dict]:
-    """找出 DTE 包含财报日的期权仓位。"""
+    """Find option positions whose DTE straddles the earnings date."""
     earn_map = {e["symbol"]: e for e in earnings if e.get("days_until") is not None}
     at_risk = []
     for pos in portfolio.get("positions", []):
@@ -146,11 +146,11 @@ def at_risk_positions(portfolio: dict, earnings: list[dict]) -> list[dict]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="财报日历查询")
-    parser.add_argument("symbols", nargs="*", help="标的列表")
-    parser.add_argument("--days", type=int, default=30, help="未来 N 天 (default 30)")
-    parser.add_argument("--portfolio-file", help="持仓 JSON 文件路径")
-    parser.add_argument("--output", help="输出文件路径（默认 stdout）")
+    parser = argparse.ArgumentParser(description="Earnings calendar lookup")
+    parser.add_argument("symbols", nargs="*", help="list of tickers")
+    parser.add_argument("--days", type=int, default=30, help="next N days (default 30)")
+    parser.add_argument("--portfolio-file", help="path to portfolio JSON file")
+    parser.add_argument("--output", help="output file path (default stdout)")
     args = parser.parse_args()
 
     symbols = set(args.symbols)
@@ -164,18 +164,18 @@ def main() -> int:
                 if pos.get("symbol"):
                     symbols.add(pos["symbol"])
         except Exception as e:
-            log(f"⚠️  无法读取 {args.portfolio_file}: {e}")
+            log(f"⚠️  Could not read {args.portfolio_file}: {e}")
 
     if not symbols:
-        log("❌ 没有标的可查询")
+        log("❌ No symbols to query")
         return 1
 
-    log(f"🔄 查询 {len(symbols)} 个标的的财报 ({args.days} 天窗口) ...")
+    log(f"🔄 Querying earnings for {len(symbols)} symbols ({args.days}-day window) ...")
     today = date.today()
 
-    log("  拉取 Nasdaq 财报日历 ...")
+    log("  fetching Nasdaq earnings calendar ...")
     nasdaq_map = fetch_nasdaq_range(args.days)
-    log(f"  Nasdaq 返回 {len(nasdaq_map)} 个未来财报")
+    log(f"  Nasdaq returned {len(nasdaq_map)} upcoming earnings")
 
     earnings = []
     for sym in sorted(symbols):
@@ -218,12 +218,12 @@ def main() -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, args.output)
-        log(f"📁 已保存到 {args.output}")
+        log(f"📁 Saved to {args.output}")
     else:
         print(json_str)
 
     found = sum(1 for e in earnings if e["next_earnings_date"])
-    log(f"✅ 完成: {found}/{len(earnings)} 找到财报日期, {len(risk)} 个 at-risk 期权")
+    log(f"✅ Done: {found}/{len(earnings)} earnings dates found, {len(risk)} at-risk option positions")
     return 0
 
 

@@ -1,14 +1,14 @@
 """
-期权日报 — 每日开盘后自动分析持仓期权状态并给出具体操作建议。
+Options daily report — after each market open, analyzes the state of current option positions and emits concrete action suggestions.
 
-输出三部分：
-  1. 到期警告（DTE≤7）：平仓 vs 展期的具体比较
-  2. 持仓标的 IV 环境：当前 IV vs 20 日历史 vol，判断贵/便宜
-  3. 具体操作建议：哪个合约、哪个价位、最大收益/亏损/胜率
+Output has three sections:
+  1. Expiry warnings (DTE≤7): close vs. roll comparison
+  2. IV environment for held symbols: current IV vs. 20-day historical vol — rich/cheap
+  3. Concrete action suggestions: which contract, which price, max profit/loss/win-rate
 
-用法：
+Usage:
   python options_daily.py
-  python options_daily.py --symbols ARM MRVL ORCL   # 额外关注标的
+  python options_daily.py --symbols ARM MRVL ORCL   # extra symbols to watch
   python options_daily.py --output /tmp/daily.json
 """
 
@@ -27,7 +27,7 @@ from options_analyzer import compute_historical_vol, assess_iv_environment, STRA
 CLIENT_ID_OFFSET = 11
 
 
-# ── 持仓读取（内联，避免二次连接）─────────────────────────────────────
+# ── Portfolio reader (inlined to avoid a second connection) ─────────────
 
 def _fetch_portfolio(ib) -> dict:
     import time
@@ -89,7 +89,7 @@ def _fetch_portfolio(ib) -> dict:
     return result
 
 
-# ── 到期警告分析 ──────────────────────────────────────────────────────
+# ── Expiry warning analysis ─────────────────────────────────────────────
 
 def _expiry_warning(pos: dict, chain_data: dict) -> dict:
     dte = pos["dte"]
@@ -101,8 +101,8 @@ def _expiry_warning(pos: dict, chain_data: dict) -> dict:
     market_price = pos.get("market_price") or 0
     upnl = pos.get("unrealized_pnl") or 0
 
-    # short: close_cost = 买回成本（正数表示需要付出）
-    # long:  close_cost = 卖出收入（正数表示可以收到）
+    # short: close_cost = cost to buy back (positive = cash you must pay)
+    # long:  close_cost = sale proceeds (positive = cash you receive)
     close_cost = round(market_price * qty * mult, 2) if market_price else None
 
     roll_target = None
@@ -113,7 +113,8 @@ def _expiry_warning(pos: dict, chain_data: dict) -> dict:
                           if abs(o["strike"] - strike) < 0.01 and o.get("bid")]
             if candidates:
                 opt = candidates[0]
-                # roll_net: short 展期净收入（远月 bid - 近月买回 ask），正数=净收权利金
+                # roll_net: net credit when rolling a short position (far-month bid - near-month buyback ask).
+                # Positive = net premium received.
                 roll_net = round((opt["bid"] - market_price) * qty * mult, 2) if is_short else None
                 roll_target = {
                     "expiration": exp_group["expiration"],
@@ -125,7 +126,7 @@ def _expiry_warning(pos: dict, chain_data: dict) -> dict:
                 }
                 break
 
-    urgency = "今日到期" if dte <= 0 else f"DTE {dte} 天"
+    urgency = "expires today" if dte <= 0 else f"DTE {dte} days"
 
     return {
         "urgency": urgency,
@@ -137,15 +138,15 @@ def _expiry_warning(pos: dict, chain_data: dict) -> dict:
     }
 
 
-# ── 具体合约推荐 ──────────────────────────────────────────────────────
+# ── Concrete contract recommendations ───────────────────────────────────
 
 def _recommend_contracts(symbol: str, chain_data: dict, iv_env: dict,
                          has_stock: bool) -> list[dict]:
-    """根据 IV 环境挑出最优合约，给出具体买卖建议。"""
+    """Pick best contracts given the IV environment and produce concrete buy/sell suggestions."""
     bias = iv_env.get("iv_bias", "neutral")
     underlying = chain_data["underlying_price"]
 
-    # IV 偏高 → 偏卖方；IV 偏低 → 偏买方；中性 → 价差
+    # IV high → favor selling; IV low → favor buying; neutral → favor spreads
     if bias == "high":
         strategies = (["covered_call"] if has_stock else []) + ["cash_secured_put", "bull_put_spread", "bear_call_spread"]
     elif bias == "low":
@@ -169,14 +170,14 @@ def _recommend_contracts(symbol: str, chain_data: dict, iv_env: dict,
             action = strat["legs"][0]["action"]
             offset = strat["legs"][0].get("strike_offset", 0)
 
-            # 找 ATM 附近的候选合约
+            # find candidate contracts near ATM
             all_opts = side_data[right]
             if not all_opts:
                 continue
             atm = min(all_opts, key=lambda o: abs(o["strike"] - underlying))
             atm_idx = all_opts.index(atm)
 
-            # offset 单位为行权价步进
+            # offset is measured in strike steps
             target_idx = max(0, min(len(all_opts) - 1, atm_idx + offset))
             opt = all_opts[target_idx]
 
@@ -188,7 +189,7 @@ def _recommend_contracts(symbol: str, chain_data: dict, iv_env: dict,
                 continue
 
             mid = round((bid + ask) / 2, 2)
-            # 胜率近似：卖方 = 1 - |delta|，买方 = |delta|
+            # Probability-of-profit approximation: seller = 1 - |delta|, buyer = |delta|
             if delta is not None:
                 pop = round((1 - abs(delta)) * 100, 1) if action == "SELL" else round(abs(delta) * 100, 1)
             else:
@@ -200,8 +201,8 @@ def _recommend_contracts(symbol: str, chain_data: dict, iv_env: dict,
             )
 
             recs.append({
-                "strategy": strat["name_cn"],
-                "action": "卖出" if action == "SELL" else "买入",
+                "strategy": strat["name"],
+                "action": "SELL" if action == "SELL" else "BUY",
                 "right": "Call" if right == "C" else "Put",
                 "strike": opt["strike"],
                 "expiration": exp_group["expiration"],
@@ -218,23 +219,23 @@ def _recommend_contracts(symbol: str, chain_data: dict, iv_env: dict,
             })
 
         if recs:
-            break  # 只取最近一个合适到期日
+            break  # only take the nearest suitable expiration
 
-    # 按胜率排序
+    # sort by probability-of-profit
     recs.sort(key=lambda r: r.get("probability_of_profit") or 0, reverse=True)
     return recs[:3]
 
 
-# ── 主流程 ────────────────────────────────────────────────────────────
+# ── Main flow ───────────────────────────────────────────────────────────
 
 def run_daily(ib, extra_symbols: list[str]) -> dict:
-    log("  读取持仓...")
+    log("  reading positions...")
     positions = _fetch_portfolio(ib)
 
     opt_positions = [p for p in positions if p["sec_type"] == "OPT"]
     stk_positions = {p["symbol"] for p in positions if p["sec_type"] == "STK"}
 
-    # 需要分析的标的：持仓期权标的 + 持仓股票 + 额外指定
+    # symbols to analyze: option underlyings + stock holdings + user-supplied extras
     symbols_to_analyze = list({p["symbol"] for p in opt_positions} | set(extra_symbols))
 
     warnings = []
@@ -242,14 +243,14 @@ def run_daily(ib, extra_symbols: list[str]) -> dict:
     recommendations = {}
 
     for symbol in symbols_to_analyze:
-        log(f"  分析 {symbol}...")
+        log(f"  analyzing {symbol}...")
         try:
             chain = fetch_chain(ib, symbol, num_strikes=8, dte_min=7, dte_max=60, max_expirations=3)
         except Exception as e:
-            log(f"    期权链获取失败: {e}")
+            log(f"    chain fetch failed: {e}")
             continue
 
-        # IV 环境
+        # IV environment
         hist_vol = compute_historical_vol(ib, symbol, days=20)
         iv_env = assess_iv_environment(chain, hist_vol)
         iv_analysis[symbol] = {
@@ -261,7 +262,7 @@ def run_daily(ib, extra_symbols: list[str]) -> dict:
             "iv_bias": iv_env.get("iv_bias"),
         }
 
-        # 到期警告
+        # expiry warnings
         sym_opts = [p for p in opt_positions if p["symbol"] == symbol]
         for pos in sym_opts:
             if pos["dte"] <= 7:
@@ -276,7 +277,7 @@ def run_daily(ib, extra_symbols: list[str]) -> dict:
                 })
                 warnings.append(w)
 
-        # 具体合约推荐
+        # concrete contract recommendations
         has_stock = symbol in stk_positions
         recs = _recommend_contracts(symbol, chain, iv_env, has_stock)
         if recs:
@@ -292,19 +293,19 @@ def run_daily(ib, extra_symbols: list[str]) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="期权日报")
+    parser = argparse.ArgumentParser(description="Options daily report")
     parser.add_argument("--symbols", nargs="*", default=[],
-                        help="额外关注的标的（持仓标的自动包含）")
-    parser.add_argument("--output", help="输出文件路径（默认 stdout）")
+                        help="extra symbols to watch (option underlyings are auto-included)")
+    parser.add_argument("--output", help="output file path (default stdout)")
     args = parser.parse_args()
 
-    log("🔄 生成期权日报...")
+    log("🔄 Generating options daily report...")
 
     try:
         with ib_connect(client_id_offset=CLIENT_ID_OFFSET) as ib:
             result = run_daily(ib, args.symbols)
     except Exception as e:
-        log(f"❌ 失败: {e}")
+        log(f"❌ Failed: {e}")
         return 1
 
     json_str = json.dumps(result, ensure_ascii=False, indent=2)
@@ -313,13 +314,13 @@ def main() -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
         os.rename(tmp, args.output)
-        log(f"📁 已保存到 {args.output}")
+        log(f"📁 Saved to {args.output}")
     else:
         print(json_str)
 
     n_warn = len(result["expiry_warnings"])
     n_rec = sum(len(v) for v in result["recommendations"].values())
-    log(f"✅ 完成: {n_warn} 个到期警告, {n_rec} 个合约推荐")
+    log(f"✅ Done: {n_warn} expiry warnings, {n_rec} contract recommendations")
     return 0
 
 

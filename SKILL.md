@@ -72,10 +72,22 @@ Flag any of:
 ### "How's my wheel doing?"
 
 ```bash
-wheel_tracker.py --summary
+wheel_tracker.py summary
 ```
 
 Returns per-symbol: stage (`short_put` / `assigned` / `covered_call` / `called_away`), cumulative premium, days in cycle, annualized return.
+
+---
+
+### "Should I roll position X?"
+
+| Step | Command | Why |
+|------|---------|-----|
+| 1 | `portfolio_positions.py` | Confirm the leg's current strike, expiry, P&L, delta |
+| 2 | `options_chain.py SYM --dte-min 25 --dte-max 60` | Survey roll candidates further out |
+| 3 | Consult [`references/wheel_strategy.md`](references/wheel_strategy.md) | "Roll vs accept assignment" decision tree |
+
+**Your recommendation must include:** new strike • new DTE • net credit (new premium − close cost) • effective basis change vs current leg • roll count so far (cap at 2).
 
 ---
 
@@ -92,13 +104,17 @@ Returns per-symbol: stage (`short_put` / `assigned` / `covered_call` / `called_a
 | `risk_simulator.py --add "..."` | Pre-trade Greeks impact |
 | `earnings_calendar.py SYM ...` | Earnings within N days |
 | `technical_indicators.py SYM` | RSI / MA / BB / ATR |
-| `wheel_tracker.py --summary` | Wheel cycle status |
+| `wheel_tracker.py summary` | Wheel cycle status & yield |
 | `alerts_monitor.py` | Threshold rules (cron-friendly) |
+| `cost_basis.py SYM [...]` | Premium-adjusted effective cost basis (wheel) |
+| `concentration.py` | HHI, sector mix, top-N portfolio concentration |
+| `flex_import.py [--flex-dir ...]` | Parse IBKR Flex CSV/XML history into JSON |
+| `trade.py <stock\|option\|combo\|...>` | **Place orders** (opt-in, dual-gate). See `references/trading.md` |
 
-All scripts:
+All read-only scripts:
 - Output JSON to stdout (or to `--output FILE`)
 - Read IBKR config from env vars (`IBKR_HOST`, `IBKR_PORT`, `IBKR_CLIENT_ID_BASE`, `IBKR_MARKET_DATA_TYPE`)
-- Are read-only — they can never place orders
+- Cannot place orders — only `trade.py` can, and only when both `IBKR_TRADING_ENABLED=1` and `--confirm-trade` are present
 
 ---
 
@@ -122,7 +138,7 @@ This lets the user audit the reasoning.
 | Constraint | What it means |
 |------------|---------------|
 | **JSON in, judgement out** | The script's `recommendations` list is candidate data, not a final answer. Re-rank against the user's situation. |
-| **Real-time by default** | `IBKR_MARKET_DATA_TYPE=1`. If quotes look frozen, check market hours + subscriptions. |
+| **Smart data type** | `IBKR_MARKET_DATA_TYPE=3` by default — IBKR auto-upgrades to realtime when user is subscribed, falls back to delayed otherwise. If quotes look stale, check market hours + subscriptions. |
 | **One clientId per script** | If you see `clientId already in use`, wait a few seconds or bump `IBKR_CLIENT_ID_BASE`. |
 | **Cache chains across calls** | `options_chain.py --output /tmp/chain.json` then `options_analyzer.py --chain-file /tmp/chain.json` saves IBKR roundtrips. |
 
@@ -135,4 +151,5 @@ Read on demand when the user's question warrants it:
 - [`references/strategies.md`](references/strategies.md) — full McMillan/Overby strategy library + selection matrix
 - [`references/greeks_primer.md`](references/greeks_primer.md) — practical Delta/Gamma/Vega/Theta interpretation
 - [`references/wheel_strategy.md`](references/wheel_strategy.md) — strike/DTE selection, roll-vs-assign decision tree
+- [`references/options_book_summary.md`](references/options_book_summary.md) — McMillan/Overby/Natenberg/Sinclair operational rules
 - [`references/troubleshooting.md`](references/troubleshooting.md) — connection errors, subscription issues
