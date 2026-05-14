@@ -20,6 +20,7 @@
 - [Quick Start](#-quick-start)
 - [Operations Guide (Second User, Auto-Restart)](#-operations-guide)
 - [Trading Mode (Optional)](#-trading-mode-optional)
+- [Security Model](#-security-model)
 - [Claude Code Integration](#-claude-code-integration)
 - [Command Reference](#-command-reference)
 - [Configuration](#-configuration)
@@ -393,6 +394,54 @@ Built-in guardrails reject notionals > $100k, stock qty > 10,000, option qty
 ⚠️ **Test on paper (`IBKR_PORT=4002`) before pointing at live.** Full docs,
 all subcommands, cancel/list-orders workflow, and bilingual reference in
 [`references/trading.md`](references/trading.md).
+
+---
+
+## 🔐 Security Model
+
+This toolkit talks to a live broker session, so the security posture is worth
+stating explicitly. Most of it is by design — what matters is knowing where
+the trust boundaries are.
+
+### What the toolkit can do
+
+| Capability | Which scripts | Default state |
+|------------|---------------|---------------|
+| Read your IBKR account (positions, balances, P&L, market data) | All scripts | **On** — required for any analysis |
+| Place / cancel / list orders against your IBKR account | `trade.py` only | **Off** — needs `IBKR_TRADING_ENABLED=1` **and** `--confirm-trade` |
+| Call `api.nasdaq.com` (and `finnhub.io` if `FINNHUB_API_KEY` set) | `earnings_calendar.py` | On — public HTTPS, no IBKR credentials transmitted |
+| Read / write `~/.ibkr_wheel_journal.json`, `~/.ibkr_alerts.yaml`, `~/.ibkr_flex/*.csv` | Wheel / alerts / Flex scripts | On — user-owned files in `$HOME` |
+| Evaluate arbitrary code from config files | **None** | `alerts_monitor.py` parses conditions via `ast.parse` with a strict whitelist (no `eval`, no `__import__`, no attribute access) |
+
+The 16 non-trading scripts open the IBKR connection with `readonly=True`. Only
+`trade.py` uses `readonly=False`, and only after both gates are open.
+
+### Trust boundaries
+
+The toolkit's authority is bounded by **two layers you control**, not by the toolkit itself:
+
+1. **The IB Gateway login** — your gateway session decides which account is reachable. Use a paper trading account (`IBKR_PORT=4002`) or a dedicated read-only IBKR sub-user if you want to cap blast radius further. Leaving Gateway's "Read-Only API" toggle enabled prevents `trade.py` from working at all, even with both software gates opened.
+2. **The two software gates inside `trade.py`** — `IBKR_TRADING_ENABLED` (env) and `--confirm-trade` (CLI flag). Missing either one and the script prints a dry-run payload and exits without contacting the broker. Additional guardrails refuse oversized orders (`--allow-large` required for notional > $100k, options qty > 1000, stock qty > 10000) and honor `IBKR_TRADING_BLOCKLIST` for tickers you never want touched.
+
+### Data the toolkit emits
+
+Read-only scripts emit JSON to stdout (or to `--output FILE`) containing your
+positions, P&L history, Greeks, Flex statement contents, and similar
+broker-derived data. This is the toolkit's purpose — Claude (or any other
+agent) reads that JSON to reason about your portfolio. Treat the output the
+same way you'd treat a brokerage statement:
+
+- Don't paste it into untrusted chats or share `--output` files publicly.
+- The agent context window will contain the same data while you're working — keep that conversation private.
+- Nothing is uploaded by the toolkit itself; it only talks to the IBKR Gateway and (optionally) Nasdaq / Finnhub public endpoints.
+
+### Recommended setup
+
+- Run on a personal machine, not shared infrastructure.
+- Keep IB Gateway's "Allow connections from localhost only" checked.
+- Default `IBKR_HOST=127.0.0.1` is correct unless you specifically need a remote Gateway.
+- Use a paper account during initial testing.
+- Leave `trade.py`'s safety gates closed unless you explicitly want order execution.
 
 ---
 

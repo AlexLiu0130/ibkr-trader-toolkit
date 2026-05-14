@@ -19,6 +19,7 @@
 - [IBKR 行情订阅](#-ibkr-行情订阅)
 - [快速开始](#-快速开始)
 - [运维指南（双用户、自动重启）](#-运维指南)
+- [安全模型](#-安全模型)
 - [Claude Code 集成](#-claude-code-集成)
 - [命令参考](#-命令参考)
 - [配置](#-配置)
@@ -340,6 +341,47 @@ util.logToConsole()
 - 等（5–30 分钟，IBKR 通常自动恢复）
 - 重启 IB Gateway，强制重连到另一个农场端点
 - 自动化场景下，脚本应把历史数据错误当作软失败处理 —— 工具已经抛出明确的 `RuntimeError`，上层可捕获
+
+---
+
+## 🔐 安全模型
+
+本工具会连接真实券商会话，安全边界值得明确写出来。绝大多数行为都是设计本意 —— 关键在于知道信任边界落在哪里。
+
+### 工具能做什么
+
+| 能力 | 涉及脚本 | 默认状态 |
+|------|---------|---------|
+| 读 IBKR 账户（持仓、余额、盈亏、行情） | 全部脚本 | **开** —— 任何分析都需要 |
+| 下单 / 撤单 / 查单 | 仅 `trade.py` | **关** —— 需同时 `IBKR_TRADING_ENABLED=1` **且** `--confirm-trade` |
+| 访问 `api.nasdaq.com`（设了 `FINNHUB_API_KEY` 时还有 `finnhub.io`） | `earnings_calendar.py` | 开 —— 公开 HTTPS，不会传输 IBKR 凭据 |
+| 读写 `~/.ibkr_wheel_journal.json`、`~/.ibkr_alerts.yaml`、`~/.ibkr_flex/*.csv` | Wheel / alerts / Flex 相关 | 开 —— 都在 `$HOME` 下你自己的文件 |
+| 执行配置文件里的任意代码 | **没有** | `alerts_monitor.py` 用 `ast.parse` 严格白名单解析条件，无 `eval`、无 `__import__`、无属性访问 |
+
+16 个只读脚本调用 IBKR 用 `readonly=True`；只有 `trade.py` 用 `readonly=False`，且要双闸门都打开才生效。
+
+### 信任边界
+
+工具的权限由**你能控制的两层**决定，不是工具自己说了算：
+
+1. **IB Gateway 登录** —— 当前会话登录的是哪个账户，工具能访问的就是哪个。想进一步缩小爆炸半径，可以用 paper 账户（`IBKR_PORT=4002`）或者专门给只读用的 IBKR 子用户。把 Gateway 的 "Read-Only API" 勾上，`trade.py` 即使两层软闸门都打开也下不出单。
+2. **`trade.py` 内部的两道软闸门** —— `IBKR_TRADING_ENABLED`（环境变量）和 `--confirm-trade`（命令行 flag）。少任何一道，脚本就打印一份 dry-run payload 然后退出，根本不会连券商。额外的护栏拒绝超大单（名义 > $100k、期权 > 1000 张、股票 > 10000 股需 `--allow-large`），并支持 `IBKR_TRADING_BLOCKLIST` 拉黑标的。
+
+### 工具输出的数据
+
+只读脚本会把 JSON 打到 stdout（或 `--output FILE`），内容包括你的持仓、盈亏历史、Greeks、Flex 报表等券商衍生数据 —— 这就是工具的目的，Claude（或其他 agent）正是读这份 JSON 来推理你的组合。把这些输出当券商对账单对待：
+
+- 不要把它贴到不信任的对话里，不要公开分享 `--output` 文件
+- 工作时 agent 上下文窗口里也会有同样的数据 —— 那段对话本身也保持私密
+- 工具本身不会上传任何东西，只跟 IBKR Gateway 和（可选的）Nasdaq / Finnhub 公开端点通信
+
+### 推荐设置
+
+- 在个人机器上跑，不要放共享基础设施
+- IB Gateway 的 "Allow connections from localhost only" 保持勾上
+- `IBKR_HOST=127.0.0.1` 默认值就够用，除非你有特殊远程 Gateway 需求
+- 第一次跑用 paper 账户
+- 不主动要用下单功能时，`trade.py` 的两道闸门都保持关闭
 
 ---
 

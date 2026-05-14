@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-05-14
+
+### Docs
+- New "Security Model" section in `README.md` and `README.zh-CN.md` covering
+  what the toolkit can do, the two trust boundaries the user controls
+  (Gateway login + `trade.py` dual gates), how output data should be
+  treated, and a recommended setup. No code changes.
+
+### Why
+ClawScan ASI03 (Identity and Privilege Abuse) and ASI06 (Memory and
+Context Poisoning) flag the toolkit's intrinsic broker-account access
+and JSON output as risk surface. Both are design-intent rather than
+defects — ClawScan itself notes "purpose-aligned" on ASI06. Documenting
+the security model explicitly lets users and reviewers see that the
+trust boundaries are deliberate and where they can be tightened
+further. The `clawscan-note` published alongside this release covers
+the same ground for automated review.
+
 ## [0.2.2] - 2026-05-14
 
 ### Security
@@ -161,7 +179,8 @@ have to remember the flag in normal use.
 - Reference docs: full strategy library, Greeks primer, wheel strategy guide,
   troubleshooting.
 
-[Unreleased]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.2.3
 [0.2.2]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.2.2
 [0.2.1]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.2.1
 [0.2.0]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.2.0
