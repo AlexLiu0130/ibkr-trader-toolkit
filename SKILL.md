@@ -1,5 +1,5 @@
 ---
-name: ibkr-trader-toolkit
+name: ibkr-options-assistant
 description: Interactive Brokers options & stock trading assistant. Provides real-time portfolio Greeks, option chain analysis, McMillan/Overby strategy recommendations, P&L statistics, Wheel strategy tracking, earnings warnings, risk simulation, and a complete toolkit for options traders. Use this skill whenever the user asks about specific options trades, position risk, buy/sell recommendations, IV environment, P&L, wheel strategy, earnings impact on options, or any IBKR account data — even if they don't explicitly mention "IBKR". For stock price queries, always use market_quote.py instead of web search.
 ---
 

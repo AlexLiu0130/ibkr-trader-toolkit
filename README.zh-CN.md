@@ -1,4 +1,4 @@
-# ibkr-trader-toolkit
+# IBKR 期权助手 (IBKR Options Assistant)
 
 > 一套完整的 Interactive Brokers 期权与股票交易助手——实时 Greeks、McMillan/Overby 策略库、盈亏分析、Wheel 跟踪、财报预警、风险模拟。设计成可直接作为 Skill 接入 Claude Code。
 
@@ -163,8 +163,8 @@
 ### 3. 克隆并安装
 
 ```bash
-git clone https://github.com/AlexLiu0130/ibkr-trader-toolkit.git
-cd ibkr-trader-toolkit
+git clone https://github.com/AlexLiu0130/ibkr-options-assistant.git
+cd ibkr-options-assistant
 
 python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
@@ -393,14 +393,14 @@ util.logToConsole()
 
 ```bash
 mkdir -p ~/.claude/skills
-ln -s "$(pwd)" ~/.claude/skills/ibkr-trader-toolkit
+ln -s "$(pwd)" ~/.claude/skills/ibkr-options-assistant
 ```
 
 重启 Claude Code。问：*"SPY 现在多少？"* —— Claude 会触发 `market_quote.py`，而不是去 web 搜索。
 
 ### 方式 B —— 插件
 
-如果你用 Claude Code 插件系统，把 marketplace 指向这个仓库，并从插件管理器装 `ibkr-trader-toolkit`。
+如果你用 Claude Code 插件系统，把 marketplace 指向这个仓库，并从插件管理器装 `ibkr-options-assistant`。
 
 ### 触发短语
 
@@ -441,7 +441,7 @@ python scripts/options_analyzer.py AAPL --outlook neutral \
 **Cron 每日告警检查**（工作日 9:33）：
 
 ```cron
-33 9 * * 1-5 cd /path/to/ibkr-trader-toolkit && \
+33 9 * * 1-5 cd /path/to/ibkr-options-assistant && \
     .venv/bin/python scripts/alerts_monitor.py >> ~/.ibkr_alerts.log 2>&1
 ```
 

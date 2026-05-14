@@ -1,4 +1,4 @@
-# ibkr-trader-toolkit
+# IBKR Options Assistant
 
 > A complete options & stock trading assistant for Interactive Brokers — real-time Greeks, McMillan/Overby strategy library, P&L analytics, Wheel tracking, earnings warnings, and risk simulation. Designed to plug straight into Claude Code as a skill.
 
@@ -170,8 +170,8 @@ Inside IB Gateway:
 ### 3. Clone & install
 
 ```bash
-git clone https://github.com/AlexLiu0130/ibkr-trader-toolkit.git
-cd ibkr-trader-toolkit
+git clone https://github.com/AlexLiu0130/ibkr-options-assistant.git
+cd ibkr-options-assistant
 
 python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
@@ -453,14 +453,14 @@ This repo ships a `SKILL.md` so Claude Code can use it directly. Two ways to ins
 
 ```bash
 mkdir -p ~/.claude/skills
-ln -s "$(pwd)" ~/.claude/skills/ibkr-trader-toolkit
+ln -s "$(pwd)" ~/.claude/skills/ibkr-options-assistant
 ```
 
 Restart Claude Code. Ask: *"What's SPY trading at right now?"* — Claude will trigger `market_quote.py` instead of doing a web search.
 
 ### Option B — Plugin
 
-If you use the Claude Code plugin system, point the marketplace at this repo and install `ibkr-trader-toolkit` from your plugin manager.
+If you use the Claude Code plugin system, point the marketplace at this repo and install `ibkr-options-assistant` from your plugin manager.
 
 ### Trigger phrases
 
@@ -505,7 +505,7 @@ python scripts/options_analyzer.py AAPL --outlook neutral \
 **Cron a daily alerts check** (every weekday at 9:33am):
 
 ```cron
-33 9 * * 1-5 cd /path/to/ibkr-trader-toolkit && \
+33 9 * * 1-5 cd /path/to/ibkr-options-assistant && \
     .venv/bin/python scripts/alerts_monitor.py >> ~/.ibkr_alerts.log 2>&1
 ```
 

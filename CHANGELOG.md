@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-05-14
+
+### Changed
+- **Renamed** the project from `ibkr-trader-toolkit` to `ibkr-options-assistant`.
+  - GitHub repo renamed (old URL 301-redirects to the new one).
+  - `SKILL.md` frontmatter `name:` updated; description, scripts, and behavior unchanged.
+  - README titles and all references updated.
+
+### Why
+The old name overlapped with order-execution / bot-style IBKR skills and
+buried the toolkit's actual positioning. This is an options-analysis
+assistant designed to be driven by Claude (or another AI agent), not a
+trading bot — the new name makes that distinction visible in search
+results and skill catalogs.
+
 ## [0.2.3] - 2026-05-14
 
 ### Docs
@@ -179,13 +194,14 @@ have to remember the flag in normal use.
 - Reference docs: full strategy library, Greeks primer, wheel strategy guide,
   troubleshooting.
 
-[Unreleased]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/compare/v0.2.3...HEAD
-[0.2.3]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.2.3
-[0.2.2]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.2.2
-[0.2.1]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.2.1
-[0.2.0]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.2.0
-[0.1.4]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.1.4
-[0.1.3]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.1.3
-[0.1.2]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.1.2
-[0.1.1]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.1.1
-[0.1.0]: https://github.com/AlexLiu0130/ibkr-trader-toolkit/releases/tag/v0.1.0
+[Unreleased]: https://github.com/AlexLiu0130/ibkr-options-assistant/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.4
+[0.2.3]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.3
+[0.2.2]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.2
+[0.2.1]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.1
+[0.2.0]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.0
+[0.1.4]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.1.4
+[0.1.3]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.1.3
+[0.1.2]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.1.2
+[0.1.1]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.1.1
+[0.1.0]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.1.0
