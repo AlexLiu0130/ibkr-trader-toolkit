@@ -31,6 +31,21 @@ Fire **even if the user doesn't mention IBKR** — if they're asking about *thei
 
 ## Workflows
 
+### "What's my account state right now?" / "Status update"
+
+For a one-glance snapshot (positions, Greeks, ITM, this-week expiries, wheel
+stages):
+
+```bash
+status_dashboard.py --output telegram   # in chat-style channels
+status_dashboard.py --output json       # parse and recompose freely
+status_dashboard.py                     # rich ANSI for terminals
+```
+
+Add `--full` to also include IV environment per held symbol and recent P&L
+(slower — extra IBKR calls). Use `--output json` when you (the agent) want
+to organize the reply yourself instead of inheriting the script's layout.
+
 ### "Should I sell a put on $SYM?"
 
 Run these in order, then synthesize:
@@ -95,6 +110,7 @@ Returns per-symbol: stage (`short_put` / `assigned` / `covered_call` / `closed`)
 
 | Script | When to use |
 |--------|-------------|
+| `status_dashboard.py [--full] [--output ansi/telegram/json]` | "What's the state of my account right now?" — one-glance snapshot for terminal, Telegram, or agent consumption |
 | `market_quote.py SYM [SYM2 ...]` | Any stock/ETF price question |
 | `portfolio_positions.py` | What do I own? Portfolio Greeks |
 | `options_chain.py SYM` | Strikes survey + IV by expiry |

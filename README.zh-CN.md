@@ -15,6 +15,7 @@
 ## 目录
 
 - [功能特性](#-功能特性)
+- [一眼看全 — status_dashboard.py](#-一眼看全--status_dashboardpy)
 - [环境要求](#-环境要求)
 - [IBKR 行情订阅](#-ibkr-行情订阅)
 - [快速开始](#-快速开始)
@@ -57,6 +58,44 @@
 
 **连接层**
 - `ib_client.py` — 共享的 IB Gateway 连接，自带 readonly 安全、按脚本 clientId 偏移、历史数据节流。
+
+---
+
+## 📺 一眼看全 — `status_dashboard.py`
+
+一个命令、三种渲染，同一份数据。可以当终端快速健康检查，可以接 Telegram bot，也可以喂 JSON 给 agent。
+
+```bash
+status_dashboard.py                     # 终端彩色 ANSI
+status_dashboard.py --output telegram   # Telegram 友好的 Markdown
+status_dashboard.py --output json       # 给 agent 用的结构化数据
+status_dashboard.py --full              # 多跑 IV 环境 + 近期盈亏
+```
+
+Telegram 渲染特意用 emoji 驱动，不依赖等宽对齐：
+
+```
+🤖 IBKR Options Assistant
+🟢 2026-05-15 09:32 ET (RTH)
+
+组合 Greeks
+Δ +1240 · Γ -45 · Vega -380 · Θ +210
+🟢 未实现 $+2,340.50
+
+持仓 (1 stk + 2 opt)
+📊 SPY +100 STK 🟢 $+1,240
+🟢 MU -1P 110 05/23 Δ-32 🟢 $+220
+🔴 AAPL -2P 200 06/19 Δ-65 🔴 $-380
+
+本周到期 (≤7d)
+⏰ MU -P 110 DTE 5 🟢
+
+Wheel 状态
+🟡 AAPL short_put · 累计 $1,450 · 年化 18.3%
+🔵 SPY covered_call · 累计 $820 · 年化 12.7%
+```
+
+ANSI 输出在终端里带彩色，JSON 输出方便 agent 自由组织回复。
 
 ---
 

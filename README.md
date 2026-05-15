@@ -15,6 +15,7 @@
 ## Table of Contents
 
 - [Features](#-features)
+- [At a glance — status_dashboard.py](#-at-a-glance--status_dashboardpy)
 - [Requirements](#-requirements)
 - [IBKR Market Data Subscriptions](#-ibkr-market-data-subscriptions)
 - [Quick Start](#-quick-start)
@@ -64,6 +65,46 @@
 
 **Connection layer**
 - `ib_client.py` — Shared IB Gateway connection with readonly safety, per-script clientId offsets, and historical-data pacing.
+
+---
+
+## 📺 At a glance — `status_dashboard.py`
+
+One command, three renderings, same data. Use it as a quick health check,
+drop it into a Telegram bot, or feed JSON to an agent.
+
+```bash
+status_dashboard.py                     # rich ANSI for terminals
+status_dashboard.py --output telegram   # Telegram-friendly markdown
+status_dashboard.py --output json       # structured for agents
+status_dashboard.py --full              # also fetch IV env + recent P&L
+```
+
+The Telegram rendering is intentionally emoji-driven so it survives
+non-monospace fonts:
+
+```
+🤖 IBKR Options Assistant
+🟢 2026-05-15 09:32 ET (RTH)
+
+组合 Greeks
+Δ +1240 · Γ -45 · Vega -380 · Θ +210
+🟢 未实现 $+2,340.50
+
+持仓 (1 stk + 2 opt)
+📊 SPY +100 STK 🟢 $+1,240
+🟢 MU -1P 110 05/23 Δ-32 🟢 $+220
+🔴 AAPL -2P 200 06/19 Δ-65 🔴 $-380
+
+本周到期 (≤7d)
+⏰ MU -P 110 DTE 5 🟢
+
+Wheel 状态
+🟡 AAPL short_put · 累计 $1,450 · 年化 18.3%
+🔵 SPY covered_call · 累计 $820 · 年化 12.7%
+```
+
+ANSI/JSON outputs show the same data with terminal colors or structured fields.
 
 ---
 

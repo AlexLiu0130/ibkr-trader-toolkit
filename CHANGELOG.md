@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-05-15
+
+### Added
+- **`status_dashboard.py`** — at-a-glance snapshot of the entire IBKR
+  Options Assistant state with three renderings from the same data:
+    - `--output ansi` (default): colored, aligned ASCII for terminals
+    - `--output telegram`: emoji-driven Markdown that survives non-monospace
+      fonts (chat clients, mobile)
+    - `--output json`: structured data for agents to recompose freely
+  Quick mode is one IBKR session (~5s) covering portfolio Greeks,
+  positions with ITM flags, this-week expiries, and Wheel stages.
+  `--full` adds IV environment per held symbol and recent realized P&L.
+  ClientId offset 20.
+- README "At a glance" section in EN + 中文 with example output.
+- SKILL.md workflow entry: "What's my account state right now?" / "Status
+  update" tells the agent to use `status_dashboard.py` for one-glance
+  account snapshots.
+
+### Why
+A user-facing snapshot that works equally well in three contexts:
+sitting at the terminal, chatting in Telegram with Atlas, or any other
+agent that wants the data raw. Single source of truth (one builder + three
+renderers) avoids the maintenance overhead of separate scripts.
+
 ## [0.2.5] - 2026-05-14
 
 ### Fixed
@@ -243,7 +267,8 @@ have to remember the flag in normal use.
 - Reference docs: full strategy library, Greeks primer, wheel strategy guide,
   troubleshooting.
 
-[Unreleased]: https://github.com/AlexLiu0130/ibkr-options-assistant/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/AlexLiu0130/ibkr-options-assistant/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.6
 [0.2.5]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.5
 [0.2.4]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.4
 [0.2.3]: https://github.com/AlexLiu0130/ibkr-options-assistant/releases/tag/v0.2.3
